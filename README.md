@@ -6,10 +6,15 @@
 ## 環境
 - Python: 3.13.12
 - NumPy: 2.5.3
+- Graphviz: 16.1.0
 
 ```bash
 python -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
+```
+
+```bash
+brew install graphviz
 ```
