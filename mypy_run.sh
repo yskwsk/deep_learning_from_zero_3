@@ -10,9 +10,6 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "${SCRIPT_DIR}")"
 
-echo "${SCRIPT_DIR}"
-echo "${PROJECT_DIR}"
-
 source "$PROJECT_DIR/venv/bin/activate"
 
 cd "$PROJECT_DIR"
