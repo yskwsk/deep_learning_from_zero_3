@@ -3,7 +3,7 @@ from __future__ import annotations
 import weakref
 from abc import ABC
 from collections.abc import Sequence
-from typing import Any, Callable, TYPE_CHECKING, cast
+from typing import Any, Callable, Literal, TYPE_CHECKING, cast
 from weakref import ReferenceType
 
 import numpy as np
@@ -143,23 +143,31 @@ class Variable:
         shape = cast(tuple[int, ...], shape)
         return dezero.functions.reshape(self, shape)
 
-    def transpose(self, *axes):
-        # if len(axes) == 0:
-        #     axes = None
-        # elif len(axes) == 1:
-        #     if isinstance(axes[0], (tuple, list)) or axes[0] is None:
-        #         axes = axes[0]
-        # return dezero.functions.transpose(self, axes)
-        pass
+    def transpose(self, *axes: int | list[int] | tuple[int, ...]):
+        if len(axes) == 0:
+            return dezero.functions.transpose(self)
+        elif len(axes) == 1:
+            if isinstance(axes[0], tuple):
+                _axes = axes[0]
+            elif isinstance(axes[0], list):
+                _axes = tuple(axes[0])
+            else:
+                raise TypeError(f"{type(axes[0])} is not supported")
+            return dezero.functions.transpose(self, _axes)
+        else:
+            axes = cast(tuple[int, ...], axes)
+            return dezero.functions.transpose(self, axes)
 
     @property
     def T(self):
-        # return dezero.functions.transpose(self)
-        pass
+        return dezero.functions.transpose(self)
 
-    def sum(self, axis=None, keepdims=False):
-        # return dezero.functions.sum(self, axis, keepdims)
-        pass
+    def sum(
+        self,
+        axis: int | tuple[int, ...] | None = None,
+        keepdims: Literal[True, False] = False
+    ) -> Variable:
+        return dezero.functions.sum(self, axis, keepdims)
 
     def to_cpu(self):
         # if self.data is not None:
@@ -269,13 +277,14 @@ class Add(Function):
 
     def backward(self, gy: Variable):
         gx0, gx1 = gy, gy
-        # if self.x0_shape != self.x1_shape:  # for broadcaset
-        #     gx0 = dezero.functions.sum_to(gx0, self.x0_shape)
-        #     gx1 = dezero.functions.sum_to(gx1, self.x1_shape)
+        if self.x0_shape != self.x1_shape:
+            # for broadcaset
+            gx0 = dezero.functions.sum_to(gx0, self.x0_shape)
+            gx1 = dezero.functions.sum_to(gx1, self.x1_shape)
         return gx0, gx1
 
 
-def add(x0, x1):
+def add(x0, x1) -> Variable:
     # x1 = as_array(x1, dezero.cuda.get_array_module(x0.data))
     x1 = as_array(x1)
     return Add()(x0, x1)
@@ -286,17 +295,18 @@ class Mul(Function):
         y = x0 * x1
         return y
 
-    def backward(self, gy: Variable):
+    def backward(self, gy: Variable) -> tuple[Variable, ...]:
         x0, x1 = self.inputs
         gx0 = gy * x1
         gx1 = gy * x0
-        # if x0.shape != x1.shape:  # for broadcast
-        #     gx0 = dezero.functions.sum_to(gx0, x0.shape)
-        #     gx1 = dezero.functions.sum_to(gx1, x1.shape)
+        if x0.shape != x1.shape:
+            # for broadcast
+            gx0 = dezero.functions.sum_to(gx0, x0.shape)
+            gx1 = dezero.functions.sum_to(gx1, x1.shape)
         return gx0, gx1
 
 
-def mul(x0, x1):
+def mul(x0, x1) -> Variable:
     # x1 = as_array(x1, dezero.cuda.get_array_module(x0.data))
     x1 = as_array(x1)
     return Mul()(x0, x1)
@@ -306,11 +316,11 @@ class Neg(Function):
     def forward(self, x: np.ndarray) -> np.ndarray:
         return -x
 
-    def backward(self, gy: Variable):
+    def backward(self, gy: Variable) -> Variable:
         return -gy
 
 
-def neg(x):
+def neg(x) -> Variable:
     return Neg()(x)
 
 
@@ -324,22 +334,23 @@ class Sub(Function):
         y = x0 - x1
         return y
 
-    def backward(self, gy):
+    def backward(self, gy) -> tuple[Variable, ...]:
         gx0 = gy
         gx1 = -gy
-        # if self.x0_shape != self.x1_shape:  # for broadcast
-        #     gx0 = dezero.functions.sum_to(gx0, self.x0_shape)
-        #     gx1 = dezero.functions.sum_to(gx1, self.x1_shape)
+        if self.x0_shape != self.x1_shape:
+            # for broadcast
+            gx0 = dezero.functions.sum_to(gx0, self.x0_shape)
+            gx1 = dezero.functions.sum_to(gx1, self.x1_shape)
         return gx0, gx1
 
 
-def sub(x0, x1):
+def sub(x0, x1) -> Variable:
     # x1 = as_array(x1, dezero.cuda.get_array_module(x0.data))
     x1 = as_array(x1)
     return Sub()(x0, x1)
 
 
-def rsub(x0, x1):
+def rsub(x0, x1) -> Variable:
     # x1 = as_array(x1, dezero.cuda.get_array_module(x0.data))
     x1 = as_array(x1)
     return Sub()(x1, x0)
@@ -350,23 +361,24 @@ class Div(Function):
         y = x0 / x1
         return y
 
-    def backward(self, gy: Variable):
+    def backward(self, gy: Variable) -> tuple[Variable, ...]:
         x0, x1 = self.inputs
         gx0 = gy / x1
         gx1 = gy * (-x0 / x1 ** 2)
-        # if x0.shape != x1.shape:  # for broadcast
-        #     gx0 = dezero.functions.sum_to(gx0, x0.shape)
-        #     gx1 = dezero.functions.sum_to(gx1, x1.shape)
+        if x0.shape != x1.shape:
+            # for broadcast
+            gx0 = dezero.functions.sum_to(gx0, x0.shape)
+            gx1 = dezero.functions.sum_to(gx1, x1.shape)
         return gx0, gx1
 
 
-def div(x0, x1):
+def div(x0, x1) -> Variable:
     # x1 = as_array(x1, dezero.cuda.get_array_module(x0.data))
     x1 = as_array(x1)
     return Div()(x0, x1)
 
 
-def rdiv(x0, x1):
+def rdiv(x0, x1) -> Variable:
     # x1 = as_array(x1, dezero.cuda.get_array_module(x0.data))
     x1 = as_array(x1)
     return Div()(x1, x0)
@@ -380,14 +392,14 @@ class Pow(Function):
         y = x ** self.c
         return y
 
-    def backward(self, gy: Variable):
+    def backward(self, gy: Variable) -> Variable:
         x, = self.inputs
         c = self.c
         gx = c * x ** (c - 1) * gy
         return gx
 
 
-def pow(x, c):
+def pow(x, c) -> Variable:
     return Pow(c)(x)
 
 
