@@ -40,6 +40,8 @@ class Variable:
 
     @property
     def shape(self) -> tuple[int, ...]:
+        if self.data is None:
+            raise ValueError("data is None")
         return self.data.shape
 
     @property
@@ -246,8 +248,8 @@ class Function(ABC):
     forward: Callable[..., Any] = _forward_unimplemented
     backward: Callable[..., Any] = _backward_unimplemented
 
-    def __call__(self, *inputs: np.ndarray | Variable) -> Any:
-        _inputs = [as_variable(x) for x in inputs]
+    def __call__(self, *inputs: np.ndarray | Variable | None) -> Any:
+        _inputs = [as_variable(x) for x in inputs if x is not None]
 
         xs = [x.data for x in _inputs]
         ys = self.forward(*xs)
