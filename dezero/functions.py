@@ -211,3 +211,22 @@ def broadcast_to(x: np.ndarray | Variable, shape: Sequence[int]) -> Variable:
     if x.shape == shape:
         return as_variable(x)
     return BroadcastTo(shape)(x)
+
+
+class MatMul(Function):
+    def forward(self, x: np.ndarray, W: np.ndarray) -> np.ndarray:
+        y = x.dot(W)
+        return y
+
+    def backward(self, gy: Variable) -> tuple[Variable, ...]:
+        x, W = self.inputs
+        gx = matmul(gy, W.T)
+        gW = matmul(x.T, gy)
+        return gx, gW
+
+
+def matmul(
+    x: np.ndarray | Variable,
+    W: np.ndarray | Variable
+) -> Variable:
+    return MatMul()(x, W)
