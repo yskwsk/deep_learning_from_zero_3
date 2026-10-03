@@ -4,19 +4,19 @@ import contextlib
 import weakref
 from weakref import ReferenceType
 
-from abc import ABC, abstractmethod
-from collections.abc import Sequence
-from typing import Any
+from abc import ABC
+from collections.abc import Generator, Sequence
+from typing import Any, Callable, ClassVar, cast
 
 import numpy as np
 
 
 class Config:
-    enable_backprop: bool = True
+    enable_backprop: ClassVar[bool] = True
 
 
 @contextlib.contextmanager
-def using_config(name: str, value: Any):
+def using_config(name: str, value: Any) -> Generator[None, None, None]:
     old_value = getattr(Config, name)
     setattr(Config, name, value)
     try:
@@ -25,13 +25,11 @@ def using_config(name: str, value: Any):
         setattr(Config, name, old_value)
 
 
-def no_grad():
+def no_grad() -> contextlib.AbstractContextManager[None]:
     return using_config("enable_backprop", False)
 
 
 class Variable:
-    __array_priority__ = 200
-
     def __init__(self, data: np.ndarray, name: str | None = None) -> None:
         if data is not None:
             if not isinstance(data, np.ndarray):
@@ -92,10 +90,15 @@ class Variable:
 
         while funcs:
             f = funcs.pop()
-            gys = [output().grad for output in f.outputs]
+            gys: list[np.ndarray] = []
+            for output_ref in f.outputs:
+                output = output_ref()
+                if (output is not None) and (output.grad is not None):
+                    gys.append(output.grad)
             gxs = f.backward(*gys)
             if not isinstance(gxs, tuple):
                 gxs = (gxs,)
+            gxs = cast(tuple[np.ndarray, ...], gxs)
 
             for x, gx in zip(f.inputs, gxs):
                 if x.grad is None:
@@ -107,8 +110,40 @@ class Variable:
                     add_func(x.creator)
 
             if not retain_grad:
-                for y in f.outputs:
-                    y().grad = None
+                for y_ref in f.outputs:
+                    y = y_ref()
+                    if y is not None:
+                        y.grad = None
+
+    def __add__(self, other) -> Variable:
+        return add(self, other)
+
+    def __radd(self, other) -> Variable:
+        return add(self, other)
+
+    def __mul__(self, other) -> Variable:
+        return mul(self, other)
+
+    def __rmul__(self, other) -> Variable:
+        return mul(self, other)
+
+    def __neg__(self) -> Variable:
+        return neg(self)
+
+    def __sub__(self, other) -> Variable:
+        return sub(self, other)
+
+    def __rsub__(self, other) -> Variable:
+        return rsub(self, other)
+
+    def __truediv__(self, other) -> Variable:
+        return div(self, other)
+
+    def __rtruediv__(self, other) -> Variable:
+        return rdiv(self, other)
+
+    def __pow__(self, other) -> Variable:
+        return pow(self, other)
 
 
 def as_variable(obj: np.ndarray | Variable) -> Variable:
@@ -123,14 +158,28 @@ def as_array(x) -> np.ndarray | Variable:
     return x
 
 
+def _forward_unimplemented(self, *inputs: Any) -> None:
+    raise NotImplementedError(
+        f"Module [{type(self).__name__}] is missing the required 'forward' function"
+    )
+
+
+def _backward_unimplemented(self, *gys: Any) -> None:
+    raise NotImplementedError(
+        f"Module [{type(self).__name__}] is missing the required 'backward' function"
+    )
+
+
 class Function(ABC):
     inputs: Sequence[Variable]
     outputs: Sequence[ReferenceType[Variable]]
     generation: int
 
-    def __call__(self, *inputs: Variable | np.ndarray) -> Sequence[Variable] | Variable:
-        _inputs: list[Variable] = [as_variable(x) for x in inputs]
+    forward: Callable[..., Any] = _forward_unimplemented
+    backward: Callable[..., Any] = _backward_unimplemented
 
+    def __call__(self, *inputs: np.ndarray | Variable) -> Any:
+        _inputs = [as_variable(x) for x in inputs]
         xs = [x.data for x in _inputs]
         ys = self.forward(*xs)
         if not isinstance(ys, tuple):
@@ -146,14 +195,6 @@ class Function(ABC):
 
         return outputs if len(outputs) > 1 else outputs[0]
 
-    @abstractmethod
-    def forward(self, *x: np.ndarray) -> Sequence[np.ndarray]:
-        ...
-
-    @abstractmethod
-    def backward(self, *gy: np.ndarray) -> np.ndarray:
-        ...
-
 
 class Add(Function):
     def forward(self, x0: np.ndarray, x1: np.ndarray) -> np.ndarray:
@@ -164,7 +205,7 @@ class Add(Function):
         return gy, gy
 
 
-def add(x0, x1) -> Variable | Sequence[Variable]:
+def add(x0, x1) -> Variable:
     x1 = as_array(x1)
     return Add()(x0, x1)
 
@@ -193,47 +234,47 @@ class Neg(Function):
         return -gy
 
 
-def neg(x):
+def neg(x) -> Variable:
     return Neg()(x)
 
 
 class Sub(Function):
-    def forward(self, x0, x1):
-            y = x0 - x1
-            return y
+    def forward(self, x0: np.ndarray, x1: np.ndarray) -> np.ndarray:
+        y = x0 - x1
+        return y
 
-    def backward(self, gy):
+    def backward(self, gy: np.ndarray) -> Sequence[np.ndarray]:
         return gy, -gy
 
 
-def sub(x0, x1):
+def sub(x0, x1) -> Variable:
     x1 = as_array(x1)
     return Sub()(x0, x1)
 
 
-def rsub(x0, x1):
+def rsub(x0, x1) -> Variable:
     x1 = as_array(x1)
     return sub(x1, x0)
 
 
 class Div(Function):
-    def forward(self, x0, x1):
+    def forward(self, x0: np.ndarray, x1: np.ndarray) -> np.ndarray:
         y = x0 / x1
         return y
 
-    def backward(self, gy):
+    def backward(self, gy: np.ndarray) -> Sequence[np.ndarray]:
         x0, x1 = self.inputs[0].data, self.inputs[1].data
         gx0 = gy / x1
         gx1 = gy * (-x0 / x1 ** 2)
         return gx0, gx1
 
 
-def div(x0, x1):
+def div(x0, x1) -> Variable:
     x1 = as_array(x1)
     return Div()(x0, x1)
 
 
-def rdiv(x0, x1):
+def rdiv(x0, x1) -> Variable:
     x1 = as_array(x1)
     return div(x1, x0)
 
@@ -242,11 +283,11 @@ class Pow(Function):
     def __init__(self, c):
         self.c = c
 
-    def forward(self, x):
+    def forward(self, x: np.ndarray):
         y = x ** self.c
         return y
 
-    def backward(self, gy):
+    def backward(self, gy: np.ndarray) -> np.ndarray:
         x = self.inputs[0].data
         c = self.c
 
@@ -254,20 +295,20 @@ class Pow(Function):
         return gx
 
 
-def pow(x, c):
+def pow(x, c) -> Variable:
     return Pow(c)(x)
 
 
-Variable.__add__ = add
-Variable.__radd__ = add
-Variable.__mul__ = mul
-Variable.__rmul__ = mul
-Variable.__neg__ = neg
-Variable.__sub__ = sub
-Variable.__rsub__ = rsub
-Variable.__truediv__ = div
-Variable.__rtruediv__ = rdiv
-Variable.__pow__ = pow
+# Variable.__add__ = add
+# Variable.__radd__ = add
+# Variable.__mul__ = mul
+# Variable.__rmul__ = mul
+# Variable.__neg__ = neg
+# Variable.__sub__ = sub
+# Variable.__rsub__ = rsub
+# Variable.__truediv__ = div
+# Variable.__rtruediv__ = rdiv
+# Variable.__pow__ = pow
 
 
 if __name__ == "__main__":

@@ -3,8 +3,9 @@ from __future__ import annotations
 import weakref
 from weakref import ReferenceType
 
-from abc import ABC, abstractmethod
+from abc import ABC
 from collections.abc import Sequence
+from typing import Any, Callable, cast
 
 import numpy as np
 
@@ -44,10 +45,15 @@ class Variable:
 
         while funcs:
             f = funcs.pop()
-            gys = [output().grad for output in f.outputs]
+            gys: list[np.ndarray] = []
+            for output_ref in f.outputs:
+                output = output_ref()
+                if (output is not None) and (output.grad is not None):
+                    gys.append(output.grad)
             gxs = f.backward(*gys)
             if not isinstance(gxs, tuple):
                 gxs = (gxs,)
+            gxs = cast(tuple[np.ndarray, ...], gxs)
 
             for x, gx in zip(f.inputs, gxs):
                 if x.grad is None:
@@ -59,12 +65,27 @@ class Variable:
                     add_func(x.creator)
 
 
+def _forward_unimplemented(self, *inputs: Any) -> None:
+    raise NotImplementedError(
+        f"Module [{type(self).__name__}] is missing the required 'forward' function"
+    )
+
+
+def _backward_unimplemented(self, *gys: Any) -> None:
+    raise NotImplementedError(
+        f"Module [{type(self).__name__}] is missing the required 'backward' function"
+    )
+
+
 class Function(ABC):
     inputs: Sequence[Variable]
     outputs: Sequence[ReferenceType[Variable]]
     generation: int
 
-    def __call__(self, *inputs: Variable) -> Sequence[Variable] | Variable:
+    forward: Callable[..., Any] = _forward_unimplemented
+    backward: Callable[..., Any] = _backward_unimplemented
+
+    def __call__(self, *inputs: Variable) -> Any:
         xs = [x.data for x in inputs]
         ys = self.forward(*xs)
         if not isinstance(ys, tuple):
@@ -79,14 +100,6 @@ class Function(ABC):
 
         return outputs if len(outputs) > 1 else outputs[0]
 
-    @abstractmethod
-    def forward(self, *x: np.ndarray) -> Sequence[np.ndarray]:
-        ...
-
-    @abstractmethod
-    def backward(self, *gy: np.ndarray) -> np.ndarray:
-        ...
-
 
 class Square(Function):
     def forward(self, x: np.ndarray) -> np.ndarray:
@@ -99,7 +112,7 @@ class Square(Function):
         return gx
 
 
-def square(x: Variable) -> Variable | Sequence[Variable]:
+def square(x: Variable) -> Variable:
     return Square()(x)
 
 
@@ -112,7 +125,7 @@ class Add(Function):
         return gy, gy
 
 
-def add(x0: Variable, x1: Variable) -> Variable | Sequence[Variable]:
+def add(x0: Variable, x1: Variable) -> Variable:
     return Add()(x0, x1)
 
 
