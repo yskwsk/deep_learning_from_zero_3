@@ -1,17 +1,18 @@
-# step23.pyからstep32.pyまではsimple_coreを利用
+from __future__ import annotations
 
 from dezero.config import Config
 from dezero.config import using_config
 from dezero.config import no_grad
 from dezero.config import test_mode
 
+# step23.pyからstep32.pyまではsimple_coreを利用
 from dezero.core_simple import Variable as SimpleVariable
 from dezero.core_simple import Function as SimpleFunction
 from dezero.core_simple import as_array as simple_as_array
 from dezero.core_simple import as_variable as simple_as_variable
 
-# from dezero.core import Variable
-# from dezero.core import Function
+from dezero.core import Variable
+from dezero.core import Function
 # from dezero.core import using_config
 # from dezero.core import no_grad
 # from dezero.core import test_mode
@@ -38,6 +39,6 @@ __all__ = [
     "simple_as_array",
     "simple_as_variable",
     # core
-    # "Variable",
-    # "Function",
+    "Variable",
+    "Function",
 ]
