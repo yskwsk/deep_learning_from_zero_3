@@ -5,9 +5,10 @@ from typing import Literal
 
 import numpy as np
 
+import dezero
 from dezero import cuda, utils
 from dezero.array_type import ArrayType
-from dezero.core import Function, Variable, as_variable
+from dezero.core import Function, Variable, as_variable, as_array
 
 
 # =============================================================================
@@ -446,6 +447,7 @@ class LogSoftmax(Function):
 
     def backward(self, gy):
         y = self.outputs[0]()
+        assert y is not None
         gx = gy - exp(y) * gy.sum(axis=self.axis, keepdims=True)
         return gx
 
@@ -465,6 +467,7 @@ class LeakyReLU(Function):
 
     def backward(self, gy):
         x, = self.inputs
+        assert x.data is not None
         mask = (x.data > 0).astype(gy.dtype)
         mask[mask <= 0] = self.slope
         gx = gy * mask
@@ -538,6 +541,9 @@ class SoftmaxCrossEntropy(Function):
 
     def backward(self, gy: Variable) -> Variable:
         x, t = self.inputs
+        assert x.data is not None
+        assert t.data is not None
+
         N, CLS_NUM = x.shape
 
         gy *= 1 / N
@@ -583,14 +589,17 @@ def binary_cross_entropy(p, t):
 # =============================================================================
 # accuracy / dropout / batch_norm / embed_id
 # =============================================================================
-def accuracy(y, t):
+def accuracy(y: ArrayType | Variable, t: ArrayType | Variable):
     """
     [WAR] This function is not differentiable.
     """
-    y, t = as_variable(y), as_variable(t)
+    _y = as_variable(y)
+    _t = as_variable(t)
+    assert _y.data is not None
+    assert _t.data is not None
 
-    pred = y.data.argmax(axis=1).reshape(t.shape)
-    result = (pred == t.data)
+    pred = _y.data.argmax(axis=1).reshape(t.shape)
+    result = (pred == _t.data)
     acc = result.mean()
     return Variable(as_array(acc))
 
@@ -648,7 +657,9 @@ class BatchNorm(Function):
 
         if x_ndim == 4:
             # (N*H*W, C) -> (N, C, H, W)
+            N, C, H, W = x.shape
             y = y.reshape(N, H, W, C).transpose(0, 3, 1, 2)
+
         return y
 
     def backward(self, gy):
@@ -672,7 +683,9 @@ class BatchNorm(Function):
         gx *= gamma * self.inv_std
 
         if gy_ndim == 4:
+            N, C, H, W = gy.shape
             gx = gx.reshape(N, H, W, C).transpose(0, 3, 1, 2)
+
         return gx, ggamma, gbeta
 
 
@@ -687,6 +700,7 @@ def embed_id(x, W):
 # =============================================================================
 # max / min / clip
 # =============================================================================
+
 class Max(Function):
     def __init__(self, axis=None, keepdims=False):
         self.axis = axis
@@ -696,11 +710,13 @@ class Max(Function):
         y = x.max(axis=self.axis, keepdims=self.keepdims)
         return y
 
-    def backward(self, gy):
+    def backward(self, gy: Variable) -> Variable:
         x = self.inputs[0]
-        y = self.outputs[0]()  # weakref
+        y = self.outputs[0]()
+        assert x is not None
+        assert y is not None
 
-        shape = utils.max_backward_shape(x, self.axis)
+        shape = tuple(utils.max_backward_shape(x, self.axis))
         gy = reshape(gy, shape)
         y = reshape(y, shape)
         cond = (x.data == y.data)

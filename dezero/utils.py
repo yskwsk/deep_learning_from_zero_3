@@ -4,6 +4,7 @@ import os
 import subprocess
 import urllib.request
 from collections.abc import Sequence
+from typing import Callable, Literal
 
 import numpy as np
 
@@ -11,6 +12,7 @@ from dezero import Function
 from dezero import Variable
 from dezero import SimpleFunction, SimpleVariable
 from dezero import cuda
+from dezero import as_variable
 from dezero.array_type import ArrayType
 
 
@@ -193,7 +195,14 @@ def max_backward_shape(x, axis):
 # =============================================================================
 # Gradient check
 # =============================================================================
-def gradient_check(f, x, *args, rtol=1e-4, atol=1e-5, **kwargs):
+def gradient_check(
+    f: Callable[[Variable], Variable],
+    x: np.ndarray | Variable,
+    rtol: float = 1e-4,
+    atol: float = 1e-5,
+    *args,
+    **kwargs
+):
     """Test backward procedure of a given function.
 
     This automatically checks the backward-process of a given function. For
@@ -216,11 +225,14 @@ def gradient_check(f, x, *args, rtol=1e-4, atol=1e-5, **kwargs):
         bool: Return True if the result is within a tolerance, otherwise False.
     """
     x = as_variable(x)
+    assert x.data is not None
     x.data = x.data.astype(np.float64)
 
     num_grad = numerical_grad(f, x, *args, **kwargs)
     y = f(x, *args, **kwargs)
     y.backward()
+    assert x.grad is not None
+    assert x.grad.data is not None
     bp_grad = x.grad.data
 
     assert bp_grad.shape == num_grad.shape
@@ -258,6 +270,7 @@ def numerical_grad(f, x, *args, **kwargs):
     eps = 1e-4
 
     x = x.data if isinstance(x, Variable) else x
+    assert x is not None
     xp = cuda.get_array_module(x)
     if xp is not np:
         np_x = cuda.as_numpy(x)
@@ -265,7 +278,11 @@ def numerical_grad(f, x, *args, **kwargs):
         np_x = x
     grad = xp.zeros_like(x)
 
-    it = np.nditer(np_x, flags=['multi_index'], op_flags=['readwrite'])
+    flags: list[Literal["multi_index"]] = ["multi_index"]
+    op_flags: list[Literal["readwrite"]] = ["readwrite"]
+
+    it = np.nditer(np_x, flags=flags, op_flags=op_flags)
+
     while not it.finished:
         idx = it.multi_index
         tmp_val = x[idx].copy()
@@ -274,12 +291,14 @@ def numerical_grad(f, x, *args, **kwargs):
         y1 = f(x, *args, **kwargs)  # f(x+h)
         if isinstance(y1, Variable):
             y1 = y1.data
+        assert y1 is not None
         y1 = y1.copy()
 
         x[idx] = tmp_val - eps
         y2 = f(x, *args, **kwargs)  # f(x-h)
         if isinstance(y2, Variable):
             y2 = y2.data
+        assert y2 is not None
         y2 = y2.copy()
 
         diff = (y1 - y2).sum()
@@ -290,29 +309,43 @@ def numerical_grad(f, x, *args, **kwargs):
     return grad
 
 
-def array_equal(a, b):
+def array_equal(a: ArrayType | Variable, b: ArrayType | Variable):
     """True if two arrays have the same shape and elements, False otherwise.
 
     Args:
-        a, b (numpy.ndarray or cupy.ndarray or dezero.Variable): input arrays
-            to compare
+        a, b (numpy.ndarray or cupy.ndarray or dezero.Variable): input arrays to compare
 
     Returns:
         bool: True if the two arrays are equal.
     """
-    a = a.data if isinstance(a, Variable) else a
-    b = b.data if isinstance(b, Variable) else b
-    a, b = cuda.as_numpy(a), cuda.as_numpy(b)
-    return np.array_equal(a, b)
+    if isinstance(a, Variable):
+        if a.data is None:
+            raise ValueError("a.data is None")
+        _a = cuda.as_numpy(a.data)
+    else:
+        _a = cuda.as_numpy(a)
+
+    if isinstance(b, Variable):
+        if b.data is None:
+            raise ValueError("b.data is None")
+        _b = cuda.as_numpy(b.data)
+    else:
+        _b = cuda.as_numpy(b)
+
+    return np.array_equal(_a, _b)
 
 
-def array_allclose(a, b, rtol=1e-4, atol=1e-5):
+def array_allclose(
+    a: ArrayType | Variable,
+    b: ArrayType | Variable,
+    rtol: float = 1e-4,
+    atol: float = 1e-5
+) -> bool:
     """Returns True if two arrays(or variables) are element-wise equal within a
     tolerance.
 
     Args:
-        a, b (numpy.ndarray or cupy.ndarray or dezero.Variable): input arrays
-            to compare
+        a, b (numpy.ndarray or cupy.ndarray or dezero.Variable): input arrays to compare
         rtol (float): The relative tolerance parameter.
         atol (float): The absolute tolerance parameter.
 
@@ -320,10 +353,21 @@ def array_allclose(a, b, rtol=1e-4, atol=1e-5):
         bool: True if the two arrays are equal within the given tolerance,
             False otherwise.
     """
-    a = a.data if isinstance(a, Variable) else a
-    b = b.data if isinstance(b, Variable) else b
-    a, b = cuda.as_numpy(a), cuda.as_numpy(b)
-    return np.allclose(a, b, atol=atol, rtol=rtol)
+    if isinstance(a, Variable):
+        if a.data is None:
+            raise ValueError("a.data is None")
+        _a = cuda.as_numpy(a.data)
+    else:
+        _a = cuda.as_numpy(a)
+
+    if isinstance(b, Variable):
+        if b.data is None:
+            raise ValueError("b.data is None")
+        _b = cuda.as_numpy(b.data)
+    else:
+        _b = cuda.as_numpy(b)
+
+    return np.allclose(_a, _b, atol=atol, rtol=rtol)
 
 
 # =============================================================================
@@ -335,8 +379,10 @@ def show_progress(block_num, block_size, total_size):
     downloaded = block_num * block_size
     p = downloaded / total_size * 100
     i = int(downloaded / total_size * 30)
-    if p >= 100.0: p = 100.0
-    if i >= 30: i = 30
+    if p >= 100.0:
+        p = 100.0
+    if i >= 30:
+        i = 30
     bar = "#" * i + "." * (30 - i)
     print(bar_template.format(bar, p), end='')
 
@@ -370,7 +416,7 @@ def get_file(url, file_name=None):
     print("Downloading: " + file_name)
     try:
         urllib.request.urlretrieve(url, file_path, show_progress)
-    except (Exception, KeyboardInterrupt) as e:
+    except (Exception, KeyboardInterrupt):
         if os.path.exists(file_path):
             os.remove(file_path)
         raise

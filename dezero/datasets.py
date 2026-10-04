@@ -4,13 +4,14 @@ import tarfile
 import pickle
 
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any, Callable
 
 import matplotlib.pyplot as plt
 import numpy as np
 
 from dezero.utils import get_file, cache_dir
-from dezero.transforms import Compose, Flatten, ToFloat, Normalize
+from dezero.transforms import Compose, Flatten, Normalize, ToFloat, Transform
 
 
 class Dataset(ABC):
@@ -110,9 +111,9 @@ class Spiral(Dataset):
 class MNIST(Dataset):
     def __init__(
         self,
-        train=True,
-        transform=Compose([Flatten(), ToFloat(), Normalize(0., 255.)]),
-        target_transform=None
+        train: bool = True,
+        transform: Transform = Compose([Flatten(), ToFloat(), Normalize(0., 255.)]),
+        target_transform: Transform | None = None
     ) -> None:
         super().__init__(train, transform, target_transform)
 
@@ -135,66 +136,128 @@ class MNIST(Dataset):
         self.data = self._load_data(data_path)
         self.label = self._load_label(label_path)
 
-    def _load_label(self, filepath):
-        with gzip.open(filepath, 'rb') as f:
-            labels = np.frombuffer(f.read(), np.uint8, offset=8)
+    def _load_label(self, filepath: str | Path) -> np.ndarray:
+        with gzip.open(filepath, "rb") as f:
+            labels = np.frombuffer(
+                buffer=f.read(),
+                dtype=np.uint8,
+                offset=8
+            )
         return labels
 
-    def _load_data(self, filepath):
+    def _load_data(self, filepath: str | Path) -> np.ndarray:
         with gzip.open(filepath, 'rb') as f:
-            data = np.frombuffer(f.read(), np.uint8, offset=16)
+            data = np.frombuffer(
+                buffer=f.read(),
+                dtype=np.uint8,
+                offset=16
+            )
         data = data.reshape(-1, 1, 28, 28)
         return data
 
     def show(self, row=10, col=10):
+        if self.data is None:
+            raise ValueError("data is None")
+
         H, W = 28, 28
         img = np.zeros((H * row, W * col))
         for r in range(row):
             for c in range(col):
                 img[r * H:(r + 1) * H, c * W:(c + 1) * W] = self.data[
-                    np.random.randint(0, len(self.data) - 1)].reshape(H, W)
+                    np.random.randint(0, len(self.data) - 1)
+                ].reshape(H, W)
         plt.imshow(img, cmap='gray', interpolation='nearest')
         plt.axis('off')
         plt.show()
 
     @staticmethod
-    def labels():
-        return {0: '0', 1: '1', 2: '2', 3: '3', 4: '4', 5: '5', 6: '6', 7: '7', 8: '8', 9: '9'}
+    def labels() -> dict[int, str]:
+        return {
+            0: '0',
+            1: '1',
+            2: '2',
+            3: '3',
+            4: '4',
+            5: '5',
+            6: '6',
+            7: '7',
+            8: '8',
+            9: '9'
+        }
 
 
-class CIFAR10(Dataset):
-    def __init__(self, train=True,
-                 transform=Compose([ToFloat(), Normalize(mean=0.5, std=0.5)]),
-                 target_transform=None):
+class CIFARBase(Dataset):
+    def __init__(
+        self,
+        train: bool = True,
+        transform: Transform | None = Compose([ToFloat(), Normalize(mean=0.5, std=0.5)]),
+        target_transform: Transform | None = None
+    ) -> None:
+        super().__init__(train, transform, target_transform)
+
+    def prepare(self) -> None:
+        pass
+
+    def show(self, row=10, col=10):
+        if self.data is None:
+            raise ValueError("data is None")
+
+        H, W = 32, 32
+        img = np.zeros((H*row, W*col, 3))
+        for r in range(row):
+            for c in range(col):
+                img[r*H:(r+1)*H, c*W:(c+1)*W] = self.data[
+                    np.random.randint(0, len(self.data)-1)
+                ].reshape(3, H, W).transpose(1, 2, 0) / 255
+        plt.imshow(img, interpolation='nearest')
+        plt.axis('off')
+        plt.show()
+
+
+class CIFAR10(CIFARBase):
+    def __init__(
+        self,
+        train: bool = True,
+        transform: Transform | None = Compose([ToFloat(), Normalize(mean=0.5, std=0.5)]),
+        target_transform: Transform | None = None
+    ) -> None:
         super().__init__(train, transform, target_transform)
 
     def prepare(self):
-        url='https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz'
+        url = 'https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz'
         self.data, self.label = load_cache_npz(url, self.train)
+
         if self.data is not None:
             return
+
         filepath = get_file(url)
         if self.train:
             self.data = np.empty((50000, 3 * 32 * 32))
             self.label = np.empty((50000), dtype=int)
             for i in range(5):
-                self.data[i * 10000:(i + 1) * 10000] = self._load_data(
-                    filepath, i + 1, 'train')
-                self.label[i * 10000:(i + 1) * 10000] = self._load_label(
-                    filepath, i + 1, 'train')
+                self.data[i * 10000:(i + 1) * 10000] = self._load_data(filepath, i + 1, 'train')
+                self.label[i * 10000:(i + 1) * 10000] = self._load_label(filepath, i + 1, 'train')
         else:
             self.data = self._load_data(filepath, 5, 'test')
             self.label = self._load_label(filepath, 5, 'test')
+
+        assert self.data is not None
         self.data = self.data.reshape(-1, 3, 32, 32)
         save_cache_npz(self.data, self.label, url, self.train)
 
-
     def _load_data(self, filename, idx, data_type='train'):
         assert data_type in ['train', 'test']
+
         with tarfile.open(filename, 'r:gz') as file:
             for item in file.getmembers():
-                if ('data_batch_{}'.format(idx) in item.name and data_type == 'train') or ('test_batch' in item.name and data_type == 'test'):
-                    data_dict = pickle.load(file.extractfile(item), encoding='bytes')
+                if (
+                    ('data_batch_{}'.format(idx) in item.name and data_type == 'train') or
+                    ('test_batch' in item.name and data_type == 'test')
+                ):
+                    extracted = file.extractfile(item)
+                    if extracted is None:
+                        raise ValueError(f"Failed to extract {item.name}")
+                    data_dict = pickle.load(file=extracted, encoding='bytes')
                     data = data_dict[b'data']
                     return data
 
@@ -202,31 +265,40 @@ class CIFAR10(Dataset):
         assert data_type in ['train', 'test']
         with tarfile.open(filename, 'r:gz') as file:
             for item in file.getmembers():
-                if ('data_batch_{}'.format(idx) in item.name and data_type == 'train') or ('test_batch' in item.name and data_type == 'test'):
-                    data_dict = pickle.load(file.extractfile(item), encoding='bytes')
+                if (
+                    ('data_batch_{}'.format(idx) in item.name and data_type == 'train') or
+                    ('test_batch' in item.name and data_type == 'test')
+                ):
+                    extracted = file.extractfile(item)
+                    if extracted is None:
+                        raise ValueError(f"Failed to extract {item.name}")
+                    data_dict = pickle.load(file=extracted, encoding='bytes')
                     return np.array(data_dict[b'labels'])
 
-    def show(self, row=10, col=10):
-        H, W = 32, 32
-        img = np.zeros((H*row, W*col, 3))
-        for r in range(row):
-            for c in range(col):
-                img[r*H:(r+1)*H, c*W:(c+1)*W] = self.data[np.random.randint(0, len(self.data)-1)].reshape(3,H,W).transpose(1,2,0)/255
-        plt.imshow(img, interpolation='nearest')
-        plt.axis('off')
-        plt.show()
-
     @staticmethod
-    def labels():
-        return {0: 'ariplane', 1: 'automobile', 2: 'bird', 3: 'cat', 4: 'deer', 5: 'dog', 6: 'frog', 7: 'horse', 8: 'ship', 9: 'truck'}
+    def labels() -> dict[int, str]:
+        return {
+            0: 'ariplane',
+            1: 'automobile',
+            2: 'bird',
+            3: 'cat',
+            4: 'deer',
+            5: 'dog',
+            6: 'frog',
+            7: 'horse',
+            8: 'ship',
+            9: 'truck'
+        }
 
 
-class CIFAR100(CIFAR10):
-
-    def __init__(self, train=True,
-                 transform=Compose([ToFloat(), Normalize(mean=0.5, std=0.5)]),
-                 target_transform=None,
-                 label_type='fine'):
+class CIFAR100(CIFARBase):
+    def __init__(
+        self,
+        train: bool = True,
+        transform: Transform | None = Compose([ToFloat(), Normalize(mean=0.5, std=0.5)]),
+        target_transform: Transform | None = None,
+        label_type: str = 'fine'
+    ) -> None:
         assert label_type in ['fine', 'coarse']
         self.label_type = label_type
         super().__init__(train, transform, target_transform)
@@ -234,6 +306,7 @@ class CIFAR100(CIFAR10):
     def prepare(self):
         url = 'https://www.cs.toronto.edu/~kriz/cifar-100-python.tar.gz'
         self.data, self.label = load_cache_npz(url, self.train)
+
         if self.data is not None:
             return
 
@@ -244,6 +317,8 @@ class CIFAR100(CIFAR10):
         else:
             self.data = self._load_data(filepath, 'test')
             self.label = self._load_label(filepath, 'test')
+
+        assert self.data is not None
         self.data = self.data.reshape(-1, 3, 32, 32)
         save_cache_npz(self.data, self.label, url, self.train)
 
@@ -251,7 +326,10 @@ class CIFAR100(CIFAR10):
         with tarfile.open(filename, 'r:gz') as file:
             for item in file.getmembers():
                 if data_type in item.name:
-                    data_dict = pickle.load(file.extractfile(item), encoding='bytes')
+                    extracted = file.extractfile(item)
+                    if extracted is None:
+                        raise ValueError(f"Failed to extract {item.name}")
+                    data_dict = pickle.load(file=extracted, encoding='bytes')
                     data = data_dict[b'data']
                     return data
 
@@ -260,15 +338,31 @@ class CIFAR100(CIFAR10):
         with tarfile.open(filename, 'r:gz') as file:
             for item in file.getmembers():
                 if data_type in item.name:
-                    data_dict = pickle.load(file.extractfile(item), encoding='bytes')
+                    extracted = file.extractfile(item)
+                    if extracted is None:
+                        raise ValueError(f"Failed to extract {item.name}")
+                    data_dict = pickle.load(file=extracted, encoding='bytes')
                     if self.label_type == 'fine':
                         return np.array(data_dict[b'fine_labels'])
                     elif self.label_type == 'coarse':
                         return np.array(data_dict[b'coarse_labels'])
+                    else:
+                        raise
 
     @staticmethod
-    def labels(label_type='fine'):
-        coarse_labels = dict(enumerate(['aquatic mammals','fish','flowers','food containers','fruit and vegetables','household electrical device','household furniture','insects','large carnivores','large man-made outdoor things','large natural outdoor scenes','large omnivores and herbivores','medium-sized mammals','non-insect invertebrates','people','reptiles','small mammals','trees','vehicles 1','vehicles 2']))
+    def labels(label_type: str = "fine"):
+        coarse_labels = dict(
+            enumerate(
+                [
+                    'aquatic mammals', 'fish', 'flowers', 'food containers', 'fruit and vegetables',
+                    'household electrical device', 'household furniture', 'insects',
+                    'large carnivores', 'large man-made outdoor things',
+                    'large natural outdoor scenes', 'large omnivores and herbivores',
+                    'medium-sized mammals', 'non-insect invertebrates', 'people', 'reptiles',
+                    'small mammals', 'trees', 'vehicles 1', 'vehicles 2'
+                ]
+            )
+        )
         fine_labels = []
         return fine_labels if label_type == 'fine' else coarse_labels
 
@@ -283,7 +377,9 @@ class ImageNet(Dataset):
 
     @staticmethod
     def labels():
-        url = 'https://gist.githubusercontent.com/yrevar/942d3a0ac09ec9e5eb3a/raw/238f720ff059c1f82f368259d1ca4ffa5dd8f9f5/imagenet1000_clsidx_to_labels.txt'
+        url = "https://gist.githubusercontent.com/yrevar" \
+            "/942d3a0ac09ec9e5eb3a/raw/238f720ff059c1f82f368259d1ca4ffa5dd8f9f5" \
+            "/imagenet1000_clsidx_to_labels.txt"
         path = get_file(url)
         with open(path, 'r') as f:
             labels = eval(f.read())

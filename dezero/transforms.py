@@ -15,7 +15,7 @@ class Transform(ABC):
         ...
 
 
-class Compose:
+class Compose(Transform):
     """Compose several transforms.
 
     Args:
@@ -162,7 +162,7 @@ class Flatten(Transform):
         return array.flatten()
 
 
-class AsType:
+class AsType(Transform):
     def __init__(self, dtype: Dtype = np.float32) -> None:
         self.dtype = dtype
 

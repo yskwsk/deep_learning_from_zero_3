@@ -28,13 +28,17 @@ def get_array_module(x: ArrayType | Variable) -> types.ModuleType:
     Returns:
         module: `cupy` or `numpy` is returned based on the argument.
     """
-    if isinstance(x, Variable):
-        x = x.data
-
     if not gpu_enable:
         return np
 
-    return cp.get_array_module(x)
+    if isinstance(x, Variable):
+        if x.data is not None:
+            raise ValueError("x.data is None")
+        _x = x.data
+    else:
+        _x = x
+
+    return cp.get_array_module(_x)
 
 
 def as_numpy(x: ArrayType | Variable) -> np.ndarray:
@@ -75,6 +79,8 @@ def as_cupy(x: ArrayType | Variable) -> cp.ndarray:
     if isinstance(x, Variable):
         if x.data is None:
             raise ValueError("x.data is None")
-        x = x.data
+        _x = x.data
+    else:
+        _x = x
 
-    return cp.asarray(x)
+    return cp.asarray(_x)

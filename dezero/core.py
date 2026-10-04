@@ -93,6 +93,7 @@ class Variable:
         create_graph: bool = False
     ):
         if self.grad is None:
+            assert self.data is not None
             xp = dezero.cuda.get_array_module(self.data)
             self.grad = Variable(xp.ones_like(self.data))
             # self.grad = Variable(np.ones_like(self.data))
@@ -239,8 +240,9 @@ def as_array(
     x: int | float | ArrayType,
     array_module=np
 ) -> ArrayType:
-    if np.isscalar(x):
+    if isinstance(x, int | float):
         return array_module.array(x)
+    assert x.data is not None
     return x
 
 
