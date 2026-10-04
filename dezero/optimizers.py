@@ -66,7 +66,7 @@ class ClipGrad:
         self.max_norm = max_norm
 
     def __call__(self, params: Sequence[Parameter]):
-        total_norm = 0
+        total_norm = 0.0
         for param in params:
             if (param.data is None) or (param.grad is None) or (param.grad.data is None):
                 raise ValueError("param.data or param.grad is None")

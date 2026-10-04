@@ -3,18 +3,22 @@ from __future__ import annotations
 import weakref
 from abc import ABC
 from collections.abc import Sequence
-from typing import Any, Callable, Literal, TYPE_CHECKING, cast
+from typing import Any, Callable, Literal, cast
 from weakref import ReferenceType
 
 import numpy as np
 
-from array_type import ArrayType, Dtype, RuntimeArrayTypes
-import dezero
-from dezero.config import Config, using_config
+# import dezero
+# from dezero.array_type import ArrayType, Dtype, RuntimeArrayTypes
+# from dezero.config import Config, using_config
 
-if TYPE_CHECKING:
-    import dezero.functions
-    import dezero.cuda
+# if TYPE_CHECKING:
+#     import dezero.functions
+#     import dezero.cuda
+
+import dezero
+from dezero.array_type import ArrayType, Dtype, RuntimeArrayTypes
+from dezero.config import Config, using_config
 
 
 # =============================================================================
@@ -216,6 +220,9 @@ class Variable:
 
     def __pow__(self, other) -> Variable:
         return pow(self, other)
+
+    def __getitem__(self, slice) -> Variable:
+        return dezero.functions.get_item(self, slice)
 
 
 class Parameter(Variable):

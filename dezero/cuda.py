@@ -5,8 +5,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from array_type import ArrayType
 from dezero import Variable
+from dezero.array_type import ArrayType
 
 if TYPE_CHECKING:
     import cupy  # type: ignore[import-not-found]
