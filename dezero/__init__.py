@@ -18,11 +18,12 @@ from dezero.core import Function
 from dezero.core import Parameter
 from dezero.core import as_array
 from dezero.core import as_variable
+from dezero.dataloaders import DataLoader
+from dezero.dataloaders import DatasetInterface
+from dezero.dataloaders import SeqDataLoader
 from dezero.layers import Layer
 from dezero.models import Model
 
-# import dezero.functions
-# import dezero.utils
 from dezero import cuda
 from dezero import functions
 from dezero import datasets
@@ -50,6 +51,10 @@ __all__ = [
     "Parameter",
     "as_array",
     "as_variable",
+    # dataloader
+    "DataLoader",
+    "DatasetInterface",
+    "SeqDataLoader",
     # layers
     "Layer",
     # models

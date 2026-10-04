@@ -1,6 +1,7 @@
 import numpy as np
-from dezero import cuda
-from dezero.core import Function, as_variable
+
+from dezero import ArrayType
+from dezero.core import Function, Variable, as_variable
 from dezero.utils import pair, get_conv_outsize, get_deconv_outsize
 from dezero.functions import linear, broadcast_to
 
@@ -8,11 +9,18 @@ from dezero.functions import linear, broadcast_to
 # =============================================================================
 # [simple version] conv2d_simple / pooling_simple
 # =============================================================================
-def conv2d_simple(x, W, b=None, stride=1, pad=0):
-    x, W = as_variable(x), as_variable(W)
+def conv2d_simple(
+    x: ArrayType | Variable,
+    W: ArrayType | Variable,
+    b: ArrayType | Variable | None = None,
+    stride: int = 1,
+    pad: int = 0
+):
+    _x = as_variable(x)
+    _W = as_variable(W)
 
-    Weight = W
-    N, C, H, W = x.shape
+    Weight = _W
+    N, C, H, W = _x.shape
     OC, C, KH, KW = Weight.shape
     SH, SW = pair(stride)
     PH, PW = pair(pad)

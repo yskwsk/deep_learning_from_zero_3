@@ -113,8 +113,7 @@ class Reshape(Function):
 
     def backward(self, gy) -> Variable:
         # 元の変数と同じ形状に変換する
-        if self.x_shape is None:
-            raise ValueError("x_shape is None")
+        assert self.x_shape is not None
         return reshape(gy, self.x_shape)
 
 
@@ -173,11 +172,15 @@ def get_item(
 
 
 class GetItemGrad(Function):
-    def __init__(self, slices, in_shape):
+    def __init__(
+        self,
+        slices: int | Sequence[int] | ArrayType,
+        in_shape: tuple[int, ...]
+    ) -> None:
         self.slices = slices
         self.in_shape = in_shape
 
-    def forward(self, gy):
+    def forward(self, gy: ArrayType) -> ArrayType:
         xp = cuda.get_array_module(gy)
         gx = xp.zeros(self.in_shape, dtype=gy.dtype)
 
@@ -188,18 +191,18 @@ class GetItemGrad(Function):
 
         return gx
 
-    def backward(self, ggx):
+    def backward(self, ggx: Variable) -> Variable:
         return get_item(ggx, self.slices)
 
 
-def expand_dims(x, axis):
+def expand_dims(x: ArrayType | Variable, axis: int) -> Variable:
     x = as_variable(x)
     shape = list(x.shape)
     shape.insert(axis, 1)
     return reshape(x, tuple(shape))
 
 
-def flatten(x):
+def flatten(x: ArrayType | Variable) -> Variable:
     """Flattens the input. Does not affect the batch size."""
     return reshape(x, (x.shape[0], -1))
 
@@ -389,8 +392,7 @@ class ReLU(Function):
 
     def backward(self, gy: Variable) -> Variable:
         x, = self.inputs
-        if x.data is None:
-            raise ValueError("x.data is None")
+        assert x.data is not None
         mask = x.data > 0
         gx = gy * mask
         return gx
@@ -437,35 +439,38 @@ def softmax(
 
 
 class LogSoftmax(Function):
-    def __init__(self, axis=1):
+    def __init__(self, axis: int | tuple[int, ...] | None = 1) -> None:
         self.axis = axis
 
-    def forward(self, x):
+    def forward(self, x: ArrayType) -> ArrayType:
         log_z = utils.logsumexp(x, self.axis)
         y = x - log_z
         return y
 
-    def backward(self, gy):
+    def backward(self, gy: Variable) -> Variable:
         y = self.outputs[0]()
         assert y is not None
         gx = gy - exp(y) * gy.sum(axis=self.axis, keepdims=True)
         return gx
 
 
-def log_softmax(x, axis=1):
+def log_softmax(
+    x: ArrayType | Variable,
+    axis: int | tuple[int, ...] | None = 1
+) -> Variable:
     return LogSoftmax(axis)(x)
 
 
 class LeakyReLU(Function):
-    def __init__(self, slope):
+    def __init__(self, slope: float) -> None:
         self.slope = slope
 
-    def forward(self, x):
+    def forward(self, x: ArrayType) -> ArrayType:
         y = x.copy()
         y[x <= 0] *= self.slope
         return y
 
-    def backward(self, gy):
+    def backward(self, gy: Variable) -> Variable:
         x, = self.inputs
         assert x.data is not None
         mask = (x.data > 0).astype(gy.dtype)
@@ -474,7 +479,10 @@ class LeakyReLU(Function):
         return gx
 
 
-def leaky_relu(x, slope=0.2):
+def leaky_relu(
+    x: ArrayType | Variable,
+    slope: float = 0.2
+) -> Variable:
     return LeakyReLU(slope)(x)
 
 
@@ -564,19 +572,26 @@ def softmax_cross_entropy(
     return SoftmaxCrossEntropy()(x, t)
 
 
-def sigmoid_cross_entropy(x, t):
+def sigmoid_cross_entropy(
+    x: ArrayType | Variable,
+    t: ArrayType | Variable
+) -> Variable:
     if x.ndim != t.ndim:
         t = t.reshape(*x.shape)
-    x, t = as_variable(x), as_variable(t)
-    N = len(x)
-    p = sigmoid(x)
+    _x = as_variable(x)
+    _t = as_variable(t)
+    N = len(_x)
+    p = sigmoid(_x)
     p = clip(p, 1e-15, 1.0)
-    tlog_p = t * log(p) + (1 - t) * log(1 - p)
+    tlog_p = _t * log(p) + (1 - _t) * log(1 - p)
     y = -1 * sum(tlog_p) / N
     return y
 
 
-def binary_cross_entropy(p, t):
+def binary_cross_entropy(
+    p: ArrayType | Variable,
+    t: ArrayType | Variable
+) -> Variable:
     if p.ndim != t.ndim:
         t = t.reshape(*p.shape)
     N = len(t)
@@ -589,7 +604,8 @@ def binary_cross_entropy(p, t):
 # =============================================================================
 # accuracy / dropout / batch_norm / embed_id
 # =============================================================================
-def accuracy(y: ArrayType | Variable, t: ArrayType | Variable):
+
+def accuracy(y: ArrayType | Variable, t: ArrayType | Variable) -> Variable:
     """
     [WAR] This function is not differentiable.
     """
@@ -599,13 +615,16 @@ def accuracy(y: ArrayType | Variable, t: ArrayType | Variable):
     assert _t.data is not None
 
     pred = _y.data.argmax(axis=1).reshape(t.shape)
-    result = (pred == _t.data)
+    result = pred == _t.data
     acc = result.mean()
     return Variable(as_array(acc))
 
 
-def dropout(x, dropout_ratio=0.5):
-    x = as_variable(x)
+def dropout(
+    x: ArrayType | Variable,
+    dropout_ratio: float = 0.5
+) -> Variable:
+    _x = as_variable(x)
 
     if dezero.Config.train:
         xp = cuda.get_array_module(x)
@@ -614,7 +633,7 @@ def dropout(x, dropout_ratio=0.5):
         y = x * mask / scale
         return y
     else:
-        return x
+        return _x
 
 
 class BatchNorm(Function):
@@ -706,32 +725,34 @@ class Max(Function):
         self.axis = axis
         self.keepdims = keepdims
 
-    def forward(self, x):
+    def forward(self, x: ArrayType) -> ArrayType:
         y = x.max(axis=self.axis, keepdims=self.keepdims)
         return y
 
     def backward(self, gy: Variable) -> Variable:
         x = self.inputs[0]
         y = self.outputs[0]()
-        assert x is not None
+        assert x.data is not None
         assert y is not None
+        assert y.data is not None
 
         shape = tuple(utils.max_backward_shape(x, self.axis))
         gy = reshape(gy, shape)
         y = reshape(y, shape)
-        cond = (x.data == y.data)
+        assert y.data is not None
+        cond = x.data == y.data
         gy = broadcast_to(gy, cond.shape)
         return gy * cond
 
 
-class Min(Max):
-    def forward(self, x):
-        y = x.min(axis=self.axis, keepdims=self.keepdims)
-        return y
-
-
 def max(x, axis=None, keepdims=False):
     return Max(axis, keepdims)(x)
+
+
+class Min(Max):
+    def forward(self, x: ArrayType) -> ArrayType:
+        y = x.min(axis=self.axis, keepdims=self.keepdims)
+        return y
 
 
 def min(x, axis=None, keepdims=False):

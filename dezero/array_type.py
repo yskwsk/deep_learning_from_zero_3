@@ -15,7 +15,8 @@ except ImportError:
 
 if TYPE_CHECKING:
     import cupy  # type: ignore[import-not-found]
-    ArrayType: TypeAlias = npt.NDArray | cupy.ndarray
+    # ArrayType: TypeAlias = npt.NDArray | cupy.ndarray
+    ArrayType: TypeAlias = npt.NDArray
 else:
     ArrayType: TypeAlias = npt.NDArray
 

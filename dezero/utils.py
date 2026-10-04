@@ -135,8 +135,7 @@ def reshape_sum_backward(
     Args:
         gy (dezero.Variable): Gradient variable from the output by backprop.
         x_shape (tuple): Shape used at sum function's forward.
-        axis (None or int or tuple of ints): Axis used at sum function's
-            forward.
+        axis (None or int or tuple of ints): Axis used at sum function's forward.
         keepdims (bool): Keepdims used at sum function's forward.
 
     Returns:
@@ -180,7 +179,10 @@ def logsumexp(
     return m
 
 
-def max_backward_shape(x, axis):
+def max_backward_shape(
+    x: ArrayType | Variable,
+    axis: int | Sequence[int] | None
+):
     if axis is None:
         axis = range(x.ndim)
     elif isinstance(axis, int):
@@ -212,14 +214,11 @@ def gradient_check(
 
     Args:
         f (callable): A function which gets `Variable`s and returns `Variable`s.
-        x (`ndarray` or `dezero.Variable`): A traget `Variable` for computing
-            the gradient.
-        *args: If `f` needs variables except `x`, you can specify with this
-            argument.
+        x (`ndarray` or `dezero.Variable`): A traget `Variable` for computing the gradient.
+        *args: If `f` needs variables except `x`, you can specify with this argument.
         rtol (float): The relative tolerance parameter.
         atol (float): The absolute tolerance parameter.
-        **kwargs: If `f` needs keyword variables, you can specify with this
-            argument.
+        **kwargs: If `f` needs keyword variables, you can specify with this argument.
 
     Returns:
         bool: Return True if the result is within a tolerance, otherwise False.
@@ -252,17 +251,14 @@ def gradient_check(
     return res
 
 
-def numerical_grad(f, x, *args, **kwargs):
+def numerical_grad(f, x, *args, **kwargs) -> ArrayType:
     """Computes numerical gradient by finite differences.
 
     Args:
         f (callable): A function which gets `Variable`s and returns `Variable`s.
-        x (`ndarray` or `dezero.Variable`): A target `Variable` for computing
-            the gradient.
-        *args: If `f` needs variables except `x`, you can specify with this
-            argument.
-        **kwargs: If `f` needs keyword variables, you can specify with this
-            argument.
+        x (`ndarray` or `dezero.Variable`): A target `Variable` for computing the gradient.
+        *args: If `f` needs variables except `x`, you can specify with this argument.
+        **kwargs: If `f` needs keyword variables, you can specify with this argument.
 
     Returns:
         `ndarray`: Gradient.
@@ -309,7 +305,7 @@ def numerical_grad(f, x, *args, **kwargs):
     return grad
 
 
-def array_equal(a: ArrayType | Variable, b: ArrayType | Variable):
+def array_equal(a: ArrayType | Variable, b: ArrayType | Variable) -> bool:
     """True if two arrays have the same shape and elements, False otherwise.
 
     Args:
@@ -350,8 +346,7 @@ def array_allclose(
         atol (float): The absolute tolerance parameter.
 
     Returns:
-        bool: True if the two arrays are equal within the given tolerance,
-            False otherwise.
+        bool: True if the two arrays are equal within the given tolerance, False otherwise.
     """
     if isinstance(a, Variable):
         if a.data is None:
@@ -373,7 +368,8 @@ def array_allclose(
 # =============================================================================
 # download function
 # =============================================================================
-def show_progress(block_num, block_size, total_size):
+
+def show_progress(block_num: int, block_size: int, total_size: int) -> None:
     bar_template = "\r[{}] {:.2f}%"
 
     downloaded = block_num * block_size
@@ -390,15 +386,14 @@ def show_progress(block_num, block_size, total_size):
 cache_dir = os.path.join(os.path.expanduser('~'), '.dezero')
 
 
-def get_file(url, file_name=None):
+def get_file(url: str, file_name: str | None = None) -> str:
     """Download a file from the `url` if it is not in the cache.
 
     The file at the `url` is downloaded to the `~/.dezero`.
 
     Args:
         url (str): URL of the file.
-        file_name (str): Name of the file. It `None` is specified the original
-            file name is used.
+        file_name (str): Name of the file. It `None` is specified the original file name is used.
 
     Returns:
         str: Absolute path to the saved file.
@@ -411,9 +406,10 @@ def get_file(url, file_name=None):
         os.mkdir(cache_dir)
 
     if os.path.exists(file_path):
+        print(f"File '{file_name}' already exists: {file_path}")
         return file_path
 
-    print("Downloading: " + file_name)
+    print(f"Downloading: {file_name}, Save path: {file_path}")
     try:
         urllib.request.urlretrieve(url, file_path, show_progress)
     except (Exception, KeyboardInterrupt):
@@ -428,11 +424,21 @@ def get_file(url, file_name=None):
 # =============================================================================
 # others
 # =============================================================================
-def get_deconv_outsize(size, k, s, p):
+def get_deconv_outsize(
+    size: int,
+    k: int,
+    s: int,
+    p: int
+) -> int:
     return s * (size - 1) + k - 2 * p
 
 
-def get_conv_outsize(input_size, kernel_size, stride, pad):
+def get_conv_outsize(
+    input_size: int,
+    kernel_size: int,
+    stride: int,
+    pad: int
+) -> int:
     return (input_size + pad * 2 - kernel_size) // stride + 1
 
 

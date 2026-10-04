@@ -143,14 +143,14 @@ class Normalize(Transform):
             mshape[0] = len(array) if len(self.mean) == 1 else len(self.mean)
             mean = np.array(self.mean, dtype=array.dtype).reshape(*mshape)
         else:
-            mean = self.mean
+            mean = np.array(self.mean)
 
         if isinstance(self.std, Sequence):
             rshape = [1] * array.ndim
             rshape[0] = len(array) if len(self.std) == 1 else len(self.std)
             std = np.array(self.std, dtype=array.dtype).reshape(*rshape)
         else:
-            std = self.std
+            std = np.array(self.std)
 
         return (array - mean) / std
 

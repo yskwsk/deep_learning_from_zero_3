@@ -112,7 +112,7 @@ class MNIST(Dataset):
     def __init__(
         self,
         train: bool = True,
-        transform: Transform = Compose([Flatten(), ToFloat(), Normalize(0., 255.)]),
+        transform: Transform | None = Compose([Flatten(), ToFloat(), Normalize(0., 255.)]),
         target_transform: Transform | None = None
     ) -> None:
         super().__init__(train, transform, target_transform)
@@ -152,8 +152,8 @@ class MNIST(Dataset):
                 dtype=np.uint8,
                 offset=16
             )
-        data = data.reshape(-1, 1, 28, 28)
-        return data
+        _data = data.reshape(-1, 1, 28, 28)
+        return _data
 
     def show(self, row=10, col=10):
         if self.data is None:
@@ -350,7 +350,7 @@ class CIFAR100(CIFARBase):
                         raise
 
     @staticmethod
-    def labels(label_type: str = "fine"):
+    def labels(label_type: str = "fine") -> dict[int, str]:
         coarse_labels = dict(
             enumerate(
                 [
@@ -363,7 +363,8 @@ class CIFAR100(CIFARBase):
                 ]
             )
         )
-        fine_labels = []
+        # fine_labels = []
+        fine_labels: dict[int, str] = {}
         return fine_labels if label_type == 'fine' else coarse_labels
 
 

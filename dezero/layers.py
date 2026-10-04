@@ -11,8 +11,10 @@ import numpy as np
 import numpy.typing as npt
 
 import dezero.functions as F
+from dezero import cuda
 from dezero.array_type import ArrayType
 from dezero.core import Variable, Parameter
+from dezero.utils import pair
 
 
 # =============================================================================
