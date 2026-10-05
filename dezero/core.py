@@ -225,6 +225,26 @@ class Variable:
     def __getitem__(self, slice) -> Variable:
         return dezero.functions.get_item(self, slice)
 
+    def matmul(self, other: Variable) -> Variable:
+        return dezero.functions.matmul(self, other)
+
+    def dot(self, other: Variable) -> Variable:
+        return dezero.functions.matmul(self, other)
+
+    def max(
+        self,
+        axis: int | tuple[int, ...] | None = None,
+        keepdims: bool = False
+    ) -> Variable:
+        return dezero.functions.max(self, axis, keepdims)
+
+    def min(
+        self,
+        axis: int | tuple[int, ...] | None = None,
+        keepdims: bool = False
+    ) -> Variable:
+        return dezero.functions.min(self, axis, keepdims)
+
 
 class Parameter(Variable):
     pass

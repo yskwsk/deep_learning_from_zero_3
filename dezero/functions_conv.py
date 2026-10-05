@@ -1,6 +1,12 @@
+from __future__ import annotations
+
+from collections.abc import Sequence
+from typing import Any
+
 import numpy as np
 
 from dezero import ArrayType
+from dezero import cuda
 from dezero.core import Function, Variable, as_variable
 from dezero.utils import pair, get_conv_outsize, get_deconv_outsize
 from dezero.functions import linear, broadcast_to
@@ -11,17 +17,16 @@ from dezero.functions import linear, broadcast_to
 # =============================================================================
 def conv2d_simple(
     x: ArrayType | Variable,
-    W: ArrayType | Variable,
+    Weight: ArrayType | Variable,
     b: ArrayType | Variable | None = None,
-    stride: int = 1,
-    pad: int = 0
-):
+    stride: int | tuple[int, int] = 1,
+    pad: int | tuple[int, int] = 0
+) -> Variable:
     _x = as_variable(x)
-    _W = as_variable(W)
+    _W = as_variable(Weight)
 
-    Weight = _W
     N, C, H, W = _x.shape
-    OC, C, KH, KW = Weight.shape
+    OC, C, KH, KW = _W.shape
     SH, SW = pair(stride)
     PH, PW = pair(pad)
     OH = get_conv_outsize(H, KH, SH, PH)
@@ -34,17 +39,22 @@ def conv2d_simple(
     return y
 
 
-def pooling_simple(x, kernel_size, stride=1, pad=0):
-    x = as_variable(x)
+def pooling_simple(
+    x: ArrayType | Variable,
+    kernel_size: int | tuple[int, int],
+    stride: int | tuple[int, int] = 1,
+    pad: int | tuple[int, int] = 0
+):
+    _x = as_variable(x)
 
-    N, C, H, W = x.shape
+    N, C, H, W = _x.shape
     KH, KW = pair(kernel_size)
     PH, PW = pair(pad)
     SH, SW = pair(stride)
     OH = get_conv_outsize(H, KH, SH, PH)
     OW = get_conv_outsize(W, KW, SW, PW)
 
-    col = im2col(x, kernel_size, stride, pad, to_matrix=True)
+    col = im2col(_x, kernel_size, stride, pad, to_matrix=True)
     col = col.reshape(-1, KH * KW)
     y = col.max(axis=1)
     y = y.reshape(N, OH, OW, C).transpose(0, 3, 1, 2)
@@ -54,13 +64,23 @@ def pooling_simple(x, kernel_size, stride=1, pad=0):
 # =============================================================================
 #  conv2d / deconv2d
 # =============================================================================
+
 class Conv2d(Function):
-    def __init__(self, stride=1, pad=0):
+    def __init__(
+        self,
+        stride: int | tuple[int, int] = 1,
+        pad: int | tuple[int, int] = 0
+    ) -> None:
         super().__init__()
         self.stride = pair(stride)
         self.pad = pair(pad)
 
-    def forward(self, x, W, b):
+    def forward(
+        self,
+        x: ArrayType,
+        W: ArrayType,
+        b: ArrayType | None = None
+    ) -> ArrayType:
         xp = cuda.get_array_module(x)
 
         KH, KW = W.shape[2:]
@@ -71,41 +91,70 @@ class Conv2d(Function):
             y += b
         y = xp.rollaxis(y, 3, 1)
         # y = np.transpose(y, (0, 3, 1, 2))
+
         return y
 
-    def backward(self, gy):
+    def backward(self, gy: Variable) -> tuple[Variable, Variable, Variable | None]:
         x, W, b = self.inputs
+
         # ==== gx ====
-        gx = deconv2d(gy, W, b=None, stride=self.stride, pad=self.pad,
-                      outsize=(x.shape[2], x.shape[3]))
+        gx = deconv2d(
+            x=gy,
+            W=W,
+            b=None,
+            stride=self.stride,
+            pad=self.pad,
+            outsize=(x.shape[2], x.shape[3])
+        )
+
         # ==== gW ====
         gW = Conv2DGradW(self)(x, gy)
+
         # ==== gb ====
         gb = None
         if b.data is not None:
             gb = gy.sum(axis=(0, 2, 3))
+
         return gx, gW, gb
 
 
-def conv2d(x, W, b=None, stride=1, pad=0):
+def conv2d(
+    x: ArrayType | Variable,
+    W: ArrayType | Variable,
+    b: ArrayType | Variable | None = None,
+    stride: int | tuple[int, int] = 1,
+    pad: int | tuple[int, int] = 0
+) -> Variable:
     return Conv2d(stride, pad)(x, W, b)
 
 
 class Deconv2d(Function):
-    def __init__(self, stride=1, pad=0, outsize=None):
+    def __init__(
+        self,
+        stride: int | tuple[int, int] = 1,
+        pad: int | tuple[int, int] = 0,
+        outsize: int | tuple[int, int] | None = None
+    ) -> None:
         super().__init__()
         self.stride = pair(stride)
         self.pad = pair(pad)
         self.outsize = outsize
+        self.no_bias = False
 
-    def forward(self, x, W, b):
+    def forward(
+        self,
+        x: ArrayType,
+        Weight: ArrayType,
+        b: ArrayType | None
+    ) -> ArrayType:
         xp = cuda.get_array_module(x)
 
-        Weight = W
+        # Weight = W
         SH, SW = self.stride
         PH, PW = self.pad
         C, OC, KH, KW = Weight.shape
         N, C, H, W = x.shape
+
         if self.outsize is None:
             out_h = get_deconv_outsize(H, KH, SH, PH)
             out_w = get_deconv_outsize(W, KW, SW, PW)
@@ -115,86 +164,144 @@ class Deconv2d(Function):
 
         gcol = xp.tensordot(Weight, x, (0, 1))
         gcol = xp.rollaxis(gcol, 3)
-        y = col2im_array(gcol, img_shape, (KH, KW), self.stride, self.pad,
-                         to_matrix=False)
+        y = col2im_array(
+            col=gcol,
+            img_shape=img_shape,
+            kernel_size=(KH, KW),
+            stride=self.stride,
+            pad=self.pad,
+            to_matrix=False
+        )
+
         # b, k, h, w
         if b is not None:
             self.no_bias = True
             y += b.reshape((1, b.size, 1, 1))
+
         return y
 
-    def backward(self, gy):
+    def backward(self, gy: Variable) -> tuple[Variable, Variable, Variable | None]:
         x, W, b = self.inputs
 
         # ==== gx ====
-        gx = conv2d(gy, W, b=None, stride=self.stride, pad=self.pad)
+        gx = conv2d(
+            x=gy,
+            W=W,
+            b=None,
+            stride=self.stride,
+            pad=self.pad
+        )
+
         # ==== gW ====
-        f = Conv2DGradW(self)
-        gW = f(gy, x)
+        gW = Conv2DGradW(self)(gy, x)
+
         # ==== gb ====
         gb = None
         if b.data is not None:
             gb = gy.sum(axis=(0, 2, 3))
+
         return gx, gW, gb
 
 
-def deconv2d(x, W, b=None, stride=1, pad=0, outsize=None):
+def deconv2d(
+    x: ArrayType | Variable,
+    W: ArrayType | Variable,
+    b: ArrayType | Variable | None = None,
+    stride: int | tuple[int, int] = 1,
+    pad: int | tuple[int, int] = 0,
+    outsize: int | tuple[int, int] | None = None
+) -> Variable:
     return Deconv2d(stride, pad, outsize)(x, W, b)
 
 
 class Conv2DGradW(Function):
-    def __init__(self, conv2d):
+    def __init__(self, conv2d: Conv2d | Deconv2d) -> None:
         W = conv2d.inputs[1]
         kh, kw = W.shape[2:]
         self.kernel_size = (kh, kw)
         self.stride = conv2d.stride
         self.pad = conv2d.pad
 
-    def forward(self, x, gy):
+    def forward(self, x: ArrayType, gy: ArrayType) -> ArrayType:
         xp = cuda.get_array_module(x)
 
-        col = im2col_array(x, self.kernel_size, self.stride, self.pad,
-                           to_matrix=False)
+        col = im2col_array(
+            img=x,
+            kernel_size=self.kernel_size,
+            stride=self.stride,
+            pad=self.pad,
+            to_matrix=False
+        )
+
         gW = xp.tensordot(gy, col, ((0, 2, 3), (0, 4, 5)))
+
         return gW
 
-    def backward(self, gys):
+    def backward(self, gys: Any) -> tuple[Variable, Variable]:
         x, gy = self.inputs
-        gW, = self.outputs
+        gW_ref, = self.outputs
+        gW = gW_ref()
+        assert gW is not None
 
         xh, xw = x.shape[2:]
-        gx = deconv2d(gy, gW, stride=self.stride, pad=self.pad,
-                      outsize=(xh, xw))
-        ggy = conv2d(x, gW, stride=self.stride, pad=self.pad)
+
+        gx = deconv2d(
+            x=gy,
+            W=gW,
+            stride=self.stride,
+            pad=self.pad,
+            outsize=(xh, xw)
+        )
+
+        ggy = conv2d(
+            x=x,
+            W=gW,
+            stride=self.stride,
+            pad=self.pad
+        )
+
         return gx, ggy
 
 
 # =============================================================================
 #  pooling(max-pooling) / average_pooling
 # =============================================================================
+
 class Pooling(Function):
-    def __init__(self, kernel_size, stride=1, pad=0):
+    def __init__(
+        self,
+        kernel_size: int | tuple[int, int],
+        stride: int | tuple[int, int] = 1,
+        pad: int | tuple[int, int] = 0
+    ) -> None:
         super().__init__()
         self.kernel_size = kernel_size
         self.stride = stride
         self.pad = pad
+        self.indexes: ArrayType | None = None
 
-    def forward(self, x):
-        col = im2col_array(x, self.kernel_size, self.stride, self.pad,
-                           to_matrix=False)
+    def forward(self, x: ArrayType) -> ArrayType:
+        col = im2col_array(
+            img=x,
+            kernel_size=self.kernel_size,
+            stride=self.stride,
+            pad=self.pad,
+            to_matrix=False
+        )
 
         N, C, KH, KW, OH, OW = col.shape
         col = col.reshape(N, C, KH * KW, OH, OW)
         self.indexes = col.argmax(axis=2)
         y = col.max(axis=2)
+
         return y
 
-    def backward(self, gy):
+    def backward(self, gy: Variable) -> Variable:
         return Pooling2DGrad(self)(gy)
 
 
 class Pooling2DGrad(Function):
-    def __init__(self, mpool2d):
+    def __init__(self, mpool2d: Pooling) -> None:
         self.mpool2d = mpool2d
         self.kernel_size = mpool2d.kernel_size
         self.stride = mpool2d.stride
@@ -203,7 +310,9 @@ class Pooling2DGrad(Function):
         self.dtype = mpool2d.inputs[0].dtype
         self.indexes = mpool2d.indexes
 
-    def forward(self, gy):
+    def forward(self, gy: ArrayType) -> ArrayType:
+        assert self.indexes is not None
+
         xp = cuda.get_array_module(gy)
 
         N, C, OH, OW = gy.shape
@@ -212,25 +321,30 @@ class Pooling2DGrad(Function):
 
         gcol = xp.zeros((N * C * OH * OW * KH * KW), dtype=self.dtype)
 
-        indexes = (self.indexes.ravel()
-                   + xp.arange(0, self.indexes.size * KH * KW, KH * KW))
-        
+        indexes = (self.indexes.ravel() + xp.arange(0, self.indexes.size * KH * KW, KH * KW))
+
         gcol[indexes] = gy.ravel()
         gcol = gcol.reshape(N, C, OH, OW, KH, KW)
         gcol = xp.swapaxes(gcol, 2, 4)
         gcol = xp.swapaxes(gcol, 3, 5)
 
-        gx = col2im_array(gcol, (N, C, H, W), self.kernel_size, self.stride,
-                          self.pad, to_matrix=False)
+        gx = col2im_array(
+            col=gcol,
+            img_shape=(N, C, H, W),
+            kernel_size=self.kernel_size,
+            stride=self.stride,
+            pad=self.pad,
+            to_matrix=False
+        )
+
         return gx
 
-    def backward(self, ggx):
-        f = Pooling2DWithIndexes(self.mpool2d)
-        return f(ggx)
+    def backward(self, ggx: Variable) -> Variable:
+        return Pooling2DWithIndexes(self.mpool2d)(ggx)
 
 
 class Pooling2DWithIndexes(Function):
-    def __init__(self, mpool2d):
+    def __init__(self, mpool2d: Pooling) -> None:
         self.kernel_size = mpool2d.kernel_size
         self.stride = mpool2d.stride
         self.pad = mpool2d.pad
@@ -238,9 +352,16 @@ class Pooling2DWithIndexes(Function):
         self.dtype = mpool2d.inputs[0].dtype
         self.indexes = mpool2d.indexes
 
-    def forward(self, x):
-        col = im2col_array(x, self.kernel_size, self.stride, self.pad,
-                           to_matrix=False)
+    def forward(self, x: ArrayType) -> ArrayType:
+        assert self.indexes is not None
+
+        col = im2col_array(
+            img=x,
+            kernel_size=self.kernel_size,
+            stride=self.stride,
+            pad=self.pad,
+            to_matrix=False
+        )
         N, C, KH, KW, OH, OW = col.shape
         col = col.reshape(N, C, KH * KW, OH, OW)
         col = col.transpose(0, 1, 3, 4, 2).reshape(-1, KH * KW)
@@ -249,66 +370,122 @@ class Pooling2DWithIndexes(Function):
         return col.reshape(N, C, OH, OW)
 
 
-def pooling(x, kernel_size, stride=1, pad=0):
+def pooling(
+    x: ArrayType | Variable,
+    kernel_size: int | tuple[int, int],
+    stride: int | tuple[int, int] = 1,
+    pad: int | tuple[int, int] = 0
+) -> Variable:
     return Pooling(kernel_size, stride, pad)(x)
 
 
 class AveragePooling(Function):
-    def __init__(self, kernel_size, stride=1, pad=0):
+    def __init__(
+        self,
+        kernel_size: int | tuple[int, int],
+        stride: int | tuple[int, int] = 1,
+        pad: int | tuple[int, int] = 0
+    ) -> None:
         super().__init__()
         self.kernel_size = kernel_size
         self.stride = stride
         self.pad = pad
-        self.input_shape = None
+        self.input_shape: tuple[int, ...] | None = None
 
-    def forward(self, x):
+    def forward(self, x: ArrayType) -> ArrayType:
         self.input_shape = x.shape
-        col = im2col_array(x, self.kernel_size, self.stride, self.pad,
-                           to_matrix=False)
+        col = im2col_array(
+            img=x,
+            kernel_size=self.kernel_size,
+            stride=self.stride,
+            pad=self.pad,
+            to_matrix=False
+        )
         y = col.mean(axis=(2, 3))
         return y
 
-    def backward(self, gy):
+    def backward(self, gy: Variable) -> Variable:
         # TODO(Koki): This is simple implementation
+        assert self.input_shape is not None
+
         N, C, OH, OW = gy.shape
         KW, KH = pair(self.kernel_size)
         gy /= (KW*KH)
-        gcol = broadcast_to(gy.reshape(-1), (KH, KW, N*C*OH*OW))
+        gcol = broadcast_to(
+            x=gy.reshape(-1),
+            shape=(KH, KW, N*C*OH*OW)
+        )
         gcol = gcol.reshape(KH, KW, N, C, OH, OW).transpose(2, 3, 0, 1, 4, 5)
-        gx = col2im(gcol, self.input_shape, self.kernel_size, self.stride,
-                    self.pad, to_matrix=False)
+        gx = col2im(
+            x=gcol,
+            input_shape=self.input_shape,
+            kernel_size=self.kernel_size,
+            stride=self.stride,
+            pad=self.pad,
+            to_matrix=False
+        )
         return gx
 
 
-def average_pooling(x, kernel_size, stride=1, pad=0):
+def average_pooling(
+    x: ArrayType | Variable,
+    kernel_size: int | tuple[int, int],
+    stride: int | tuple[int, int] = 1,
+    pad: int | tuple[int, int] = 0
+) -> Variable:
     return AveragePooling(kernel_size, stride, pad)(x)
 
 
 # =============================================================================
 #  im2col / col2im
 # =============================================================================
+
 class Im2col(Function):
-    def __init__(self, kernel_size, stride, pad, to_matrix):
+    def __init__(
+        self,
+        kernel_size: int | tuple[int, int],
+        stride: int | tuple[int, int],
+        pad: int | tuple[int, int],
+        to_matrix: bool
+    ) -> None:
         super().__init__()
-        self.input_shape = None
+        self.input_shape: tuple[int, ...] | None = None
         self.kernel_size = kernel_size
         self.stride = stride
         self.pad = pad
         self.to_matrix = to_matrix
 
-    def forward(self, x):
+    def forward(self, x: ArrayType) -> ArrayType:
         self.input_shape = x.shape
-        y = im2col_array(x, self.kernel_size, self.stride, self.pad,
-                         self.to_matrix)
+        y = im2col_array(
+            img=x,
+            kernel_size=self.kernel_size,
+            stride=self.stride,
+            pad=self.pad,
+            to_matrix=self.to_matrix
+        )
         return y
 
-    def backward(self, gy):
-        gx = col2im(gy, self.input_shape, self.kernel_size, self.stride,
-                    self.pad, self.to_matrix)
+    def backward(self, gy: Variable) -> Variable:
+        assert self.input_shape is not None
+        gx = col2im(
+            x=gy,
+            input_shape=self.input_shape,
+            kernel_size=self.kernel_size,
+            stride=self.stride,
+            pad=self.pad,
+            to_matrix=self.to_matrix
+        )
         return gx
 
 
-def im2col(x, kernel_size, stride=1, pad=0, to_matrix=True):
+def im2col(
+    x: ArrayType | Variable,
+    kernel_size: int | tuple[int, int],
+    stride: int | tuple[int, int] = 1,
+    pad: int | tuple[int, int] = 0,
+    to_matrix: bool = True
+) -> Variable:
     """Extract patches from an image based on the filter.
 
     Args:
@@ -334,12 +511,18 @@ def im2col(x, kernel_size, stride=1, pad=0, to_matrix=True):
     - `PH` and `PW` are the spatial padding sizes.
     - `OH` and `OW` are the the height and width of the output, respectively.
     """
-    y = Im2col(kernel_size, stride, pad, to_matrix)(x)
-    return y
+    return Im2col(kernel_size, stride, pad, to_matrix)(x)
 
 
 class Col2im(Function):
-    def __init__(self, input_shape, kernel_size, stride, pad, to_matrix):
+    def __init__(
+        self,
+        input_shape: Sequence[int],
+        kernel_size: int | tuple[int, int],
+        stride: int | tuple[int, int],
+        pad: int | tuple[int, int],
+        to_matrix: bool,
+    ) -> None:
         super().__init__()
         self.input_shape = input_shape
         self.kernel_size = kernel_size
@@ -347,26 +530,49 @@ class Col2im(Function):
         self.pad = pad
         self.to_matrix = to_matrix
 
-    def forward(self, x):
-        y = col2im_array(x, self.input_shape, self.kernel_size, self.stride,
-                         self.pad, self.to_matrix)
+    def forward(self, x: ArrayType) -> ArrayType:
+        y = col2im_array(
+            col=x,
+            img_shape=self.input_shape,
+            kernel_size=self.kernel_size,
+            stride=self.stride,
+            pad=self.pad,
+            to_matrix=self.to_matrix
+        )
         return y
 
-    def backward(self, gy):
-        gx = im2col(gy, self.kernel_size, self.stride, self.pad,
-                    self.to_matrix)
+    def backward(self, gy: Variable) -> Variable:
+        gx = im2col(
+            x=gy,
+            kernel_size=self.kernel_size,
+            stride=self.stride,
+            pad=self.pad,
+            to_matrix=self.to_matrix
+        )
         return gx
 
 
-def col2im(x, input_shape, kernel_size, stride=1, pad=0, to_matrix=True):
+def col2im(
+    x: ArrayType | Variable,
+    input_shape: Sequence[int],
+    kernel_size: int | tuple[int, int],
+    stride: int | tuple[int, int] = 1,
+    pad: int | tuple[int, int] = 0,
+    to_matrix: bool = True
+) -> Variable:
     return Col2im(input_shape, kernel_size, stride, pad, to_matrix)(x)
 
 
 # =============================================================================
 #  numpy im2col
 # =============================================================================
-def im2col_array(img, kernel_size, stride, pad, to_matrix=True):
-
+def im2col_array(
+    img: ArrayType,
+    kernel_size: int | tuple[int, int],
+    stride: int | tuple[int, int],
+    pad: int | tuple[int, int],
+    to_matrix: bool = True
+) -> ArrayType:
     N, C, H, W = img.shape
     KH, KW = pair(kernel_size)
     SH, SW = pair(stride)
@@ -378,9 +584,12 @@ def im2col_array(img, kernel_size, stride, pad, to_matrix=True):
     if xp != np:
         col = _im2col_gpu(img, kernel_size, stride, pad)
     else:
-        img = np.pad(img,
-                     ((0, 0), (0, 0), (PH, PH + SH - 1), (PW, PW + SW - 1)),
-                     mode='constant', constant_values=(0,))
+        img = np.pad(
+            img,
+            ((0, 0), (0, 0), (PH, PH + SH - 1), (PW, PW + SW - 1)),
+            mode='constant',
+            constant_values=(0,)
+        )
         col = np.ndarray((N, C, KH, KW, OH, OW), dtype=img.dtype)
 
         for j in range(KH):
@@ -395,7 +604,17 @@ def im2col_array(img, kernel_size, stride, pad, to_matrix=True):
     return col
 
 
-def col2im_array(col, img_shape, kernel_size, stride, pad, to_matrix=True):
+def col2im_array(
+    col: ArrayType,
+    img_shape: Sequence[int],
+    kernel_size: int | tuple[int, int],
+    stride: int | tuple[int, int],
+    pad: int | tuple[int, int],
+    to_matrix: bool = True
+) -> ArrayType:
+    if len(img_shape) != 4:
+        raise ValueError("len(img_shape) is not 4")
+
     N, C, H, W = img_shape
     KH, KW = pair(kernel_size)
     SH, SW = pair(stride)
@@ -411,17 +630,26 @@ def col2im_array(col, img_shape, kernel_size, stride, pad, to_matrix=True):
         img = _col2im_gpu(col, SH, SW, PH, PW, H, W)
         return img
     else:
-        img = np.zeros((N, C, H + 2 * PH + SH - 1, W + 2 * PW + SW - 1),
-                       dtype=col.dtype)
+        img = np.zeros(
+            (N, C, H + 2 * PH + SH - 1, W + 2 * PW + SW - 1),
+            dtype=col.dtype
+        )
+
         for j in range(KH):
             j_lim = j + SH * OH
             for i in range(KW):
                 i_lim = i + SW * OW
                 img[:, :, j:j_lim:SH, i:i_lim:SW] += col[:, :, j, i, :, :]
+
         return img[:, :, PH:H + PH, PW:W + PW]
 
 
-def _im2col_gpu(img, kernel_size, stride, pad):
+def _im2col_gpu(
+    img: cuda.cupy.ndarray,
+    kernel_size: int | tuple[int, int],
+    stride: int | tuple[int, int],
+    pad: int | tuple[int, int]
+) -> cuda.cupy.ndarray:
     """im2col function for GPU.
     This code is ported from Chainer:
     https://github.com/chainer/chainer/blob/v6.4.0/chainer/utils/conv.py
@@ -454,13 +682,20 @@ def _im2col_gpu(img, kernel_size, stride, pad):
              col = 0;
            }
         ''',
-        'im2col')(img.reduced_view(),
-                  h, w, out_h, out_w, kh, kw, sy, sx, ph, pw, dy, dx, col)
+        'im2col')(img.reduced_view(), h, w, out_h, out_w, kh, kw, sy, sx, ph, pw, dy, dx, col)
 
     return col
 
 
-def _col2im_gpu(col, sy, sx, ph, pw, h, w):
+def _col2im_gpu(
+    col: cuda.cupy.ndarray,
+    sy: int,
+    sx: int,
+    ph: int,
+    pw: int,
+    h: int,
+    w: int,
+) -> cuda.cupy.ndarray:
     """col2im function for GPU.
     This code is ported from Chainer:
     https://github.com/chainer/chainer/blob/v6.4.0/chainer/utils/conv.py
@@ -495,6 +730,6 @@ def _col2im_gpu(col, sy, sx, ph, pw, h, w):
            }
            img = val;
         ''',
-        'col2im')(col.reduced_view(),
-                  h, w, out_h, out_w, kh, kw, sy, sx, ph, pw, dx, dy, img)
+        'col2im')(col.reduced_view(), h, w, out_h, out_w, kh, kw, sy, sx, ph, pw, dx, dy, img)
+
     return img

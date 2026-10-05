@@ -721,7 +721,11 @@ def embed_id(x, W):
 # =============================================================================
 
 class Max(Function):
-    def __init__(self, axis=None, keepdims=False):
+    def __init__(
+        self,
+        axis: int | tuple[int, ...] | None = None,
+        keepdims: Literal[True, False] = False
+    ) -> None:
         self.axis = axis
         self.keepdims = keepdims
 
@@ -745,7 +749,11 @@ class Max(Function):
         return gy * cond
 
 
-def max(x, axis=None, keepdims=False):
+def max(
+    x: ArrayType | Variable,
+    axis: int | tuple[int, ...] | None = None,
+    keepdims: Literal[True, False] = False
+) -> Variable:
     return Max(axis, keepdims)(x)
 
 
@@ -755,7 +763,11 @@ class Min(Max):
         return y
 
 
-def min(x, axis=None, keepdims=False):
+def min(
+    x: ArrayType | Variable,
+    axis: int | tuple[int, ...] | None = None,
+    keepdims: Literal[True, False] = False
+) -> Variable:
     return Min(axis, keepdims)(x)
 
 
@@ -771,8 +783,7 @@ class Clip(Function):
 
     def backward(self, gy: Variable) -> Variable:
         x, = self.inputs
-        if x.data is None:
-            raise ValueError("x.data is None")
+        assert x.data is not None
         mask = (x.data >= self.x_min) * (x.data <= self.x_max)
         gx = gy * mask
         return gx
