@@ -442,7 +442,7 @@ def get_conv_outsize(
     return (input_size + pad * 2 - kernel_size) // stride + 1
 
 
-def pair(x: int | tuple[int, ...]) -> tuple[int, int]:
+def pair(x: int | tuple[int, int]) -> tuple[int, int]:
     if isinstance(x, int):
         return (x, x)
     elif isinstance(x, tuple):

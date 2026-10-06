@@ -317,13 +317,13 @@ def matmul(
 
 
 class Linear(Function):
-    def forward(self, x: ArrayType, W: ArrayType, b: ArrayType | None) -> ArrayType:
+    def forward(self, x: ArrayType, W: ArrayType, b: ArrayType | None = None) -> ArrayType:
         y = x.dot(W)
         if b is not None:
             y += b
         return y
 
-    def backward(self, gy: Variable) -> tuple[Variable | None, ...]:
+    def backward(self, gy: Variable) -> tuple[Variable, Variable, Variable | None]:
         x, W, b = self.inputs
         if b.data is None:
             gb = None
@@ -630,21 +630,32 @@ def dropout(
         xp = cuda.get_array_module(x)
         mask = xp.random.rand(*x.shape) > dropout_ratio
         scale = xp.array(1.0 - dropout_ratio).astype(x.dtype)
-        y = x * mask / scale
+        y = _x * mask / scale
         return y
     else:
         return _x
 
 
 class BatchNorm(Function):
-    def __init__(self, mean, var, decay, eps):
+    def __init__(
+        self,
+        mean,
+        var,
+        decay: float,
+        eps: float
+    ) -> None:
         self.avg_mean = mean
         self.avg_var = var
         self.decay = decay
         self.eps = eps
         self.inv_std = None
 
-    def forward(self, x, gamma, beta):
+    def forward(
+        self,
+        x: ArrayType,
+        gamma: ArrayType,
+        beta
+    ):
         assert x.ndim == 2 or x.ndim == 4
 
         x_ndim = x.ndim
@@ -681,7 +692,7 @@ class BatchNorm(Function):
 
         return y
 
-    def backward(self, gy):
+    def backward(self, gy: Variable) -> tuple[Variable, Variable, Variable]:
         gy_ndim = gy.ndim
         if gy_ndim == 4:
             N, C, H, W = gy.shape
@@ -693,6 +704,7 @@ class BatchNorm(Function):
         if x.ndim == 4:
             N, C, H, W = x.shape
             x = x.transpose(0, 2, 3, 1).reshape(-1, C)
+
         mean = x.sum(axis=0) / batch_size
         xc = (x - mean) * self.inv_std
 
@@ -795,22 +807,3 @@ def clip(
     x_max: float
 ) -> Variable:
     return Clip(x_min, x_max)(x)
-
-# =============================================================================
-# conv2d / col2im / im2col / basic_math
-# =============================================================================
-# from dezero.functions_conv import conv2d
-# from dezero.functions_conv import deconv2d
-# from dezero.functions_conv import conv2d_simple
-# from dezero.functions_conv import im2col
-# from dezero.functions_conv import col2im
-# from dezero.functions_conv import pooling_simple
-# from dezero.functions_conv import pooling
-# from dezero.functions_conv import average_pooling
-# from dezero.core import add
-# from dezero.core import sub
-# from dezero.core import rsub
-# from dezero.core import mul
-# from dezero.core import div
-# from dezero.core import neg
-# from dezero.core import pow

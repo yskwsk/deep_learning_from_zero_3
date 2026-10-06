@@ -250,7 +250,7 @@ class Parameter(Variable):
     pass
 
 
-def as_variable(obj: ArrayType | Variable) -> Variable:
+def as_variable(obj: ArrayType | Variable | None) -> Variable:
     if isinstance(obj, Variable):
         return obj
     return Variable(obj)
@@ -287,12 +287,13 @@ class Function(ABC):
     backward: Callable[..., Any] = _backward_unimplemented
 
     def __call__(self, *inputs: ArrayType | Variable | None) -> Any:
-        _inputs = [as_variable(x) for x in inputs if x is not None]
+        # _inputs = [as_variable(x) for x in inputs if x is not None]
+        _inputs = [as_variable(x) for x in inputs]
 
         xs: list[ArrayType] = []
         for x in _inputs:
             if x.data is None:
-                raise ValueError("Variable.data is None")
+                continue
             xs.append(x.data)
 
         ys = self.forward(*xs)
@@ -437,7 +438,7 @@ def rdiv(x0, x1) -> Variable:
 
 
 class Pow(Function):
-    def __init__(self, c: int | float) -> None:
+    def __init__(self, c: float) -> None:
         self.c = c
 
     def forward(self, x: ArrayType) -> ArrayType:

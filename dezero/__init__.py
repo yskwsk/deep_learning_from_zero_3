@@ -26,8 +26,10 @@ from dezero.models import Model
 
 from dezero import cuda
 from dezero import functions
+from dezero import functions_conv
 from dezero import datasets
 from dezero import optimizers
+from dezero import utils
 
 # setup_variable()
 __version__ = "0.0.1"
@@ -62,6 +64,8 @@ __all__ = [
     # other
     "cuda",
     "functions",
+    "functions_conv",
     "datasets",
-    "optimizers"
+    "optimizers",
+    "utils",
 ]

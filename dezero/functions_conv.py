@@ -44,7 +44,7 @@ def pooling_simple(
     kernel_size: int | tuple[int, int],
     stride: int | tuple[int, int] = 1,
     pad: int | tuple[int, int] = 0
-):
+) -> Variable:
     _x = as_variable(x)
 
     N, C, H, W = _x.shape

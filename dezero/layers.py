@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import types
 import weakref
 from abc import ABC
 from collections.abc import Generator
@@ -11,8 +12,9 @@ import numpy as np
 import numpy.typing as npt
 
 import dezero.functions as F
+import dezero.functions_conv as Fconv
 from dezero import cuda
-from dezero.array_type import ArrayType
+from dezero.array_type import ArrayType, Dtype
 from dezero.core import Variable, Parameter
 from dezero.utils import pair
 
@@ -40,7 +42,8 @@ class Layer(ABC):
             self._params.add(name)
         super().__setattr__(name, value)
 
-    def __call__(self, *inputs: np.ndarray | Variable) -> Any:
+    # def __call__(self, *inputs: ArrayType | Variable) -> Any:
+    def __call__(self, *inputs: Any) -> Any:
         ys = self.forward(*inputs)
         if not isinstance(ys, tuple):
             ys = (ys,)
@@ -147,7 +150,7 @@ class Linear(Layer):
         W_data = np.random.randn(in_size, out_size).astype(self.dtype) * np.sqrt(1.0 / in_size)
         self.W.data = W_data
 
-    def forward(self, x: np.ndarray | Variable) -> Variable:
+    def forward(self, x: ArrayType | Variable) -> Variable:
         if self.W.data is None:
             self.in_size = x.shape[1]
             self._init_W()
@@ -157,8 +160,16 @@ class Linear(Layer):
 
 
 class Conv2d(Layer):
-    def __init__(self, out_channels, kernel_size, stride=1,
-                 pad=0, nobias=False, dtype=np.float32, in_channels=None):
+    def __init__(
+        self,
+        out_channels: int,
+        kernel_size: int | tuple[int, int],
+        stride: int | tuple[int, int] = 1,
+        pad: int | tuple[int, int] = 0,
+        nobias: bool = False,
+        dtype: Dtype = np.float32,
+        in_channels: int | None = None
+    ) -> None:
         """Two-dimensional convolutional layer.
 
         Args:
@@ -179,35 +190,47 @@ class Conv2d(Layer):
         self.pad = pad
         self.dtype = dtype
 
-        self.W = Parameter(None, name='W')
+        self.W = Parameter(None, name="W")
         if in_channels is not None:
             self._init_W()
 
         if nobias:
             self.b = None
         else:
-            self.b = Parameter(np.zeros(out_channels, dtype=dtype), name='b')
+            self.b = Parameter(np.zeros(out_channels, dtype=dtype), name="b")
 
-    def _init_W(self, xp=np):
-        C, OC = self.in_channels, self.out_channels
+    def _init_W(self, xp: types.ModuleType = np) -> None:
+        if self.in_channels is None:
+            raise ValueError("in_channels is None")
+
+        C = self.in_channels
+        OC = self.out_channels
         KH, KW = pair(self.kernel_size)
         scale = np.sqrt(1 / (C * KH * KW))
         W_data = xp.random.randn(OC, C, KH, KW).astype(self.dtype) * scale
         self.W.data = W_data
 
-    def forward(self, x):
+    def forward(self, x: ArrayType | Variable) -> Variable:
         if self.W.data is None:
             self.in_channels = x.shape[1]
             xp = cuda.get_array_module(x)
             self._init_W(xp)
 
-        y = F.conv2d(x, self.W, self.b, self.stride, self.pad)
+        y = Fconv.conv2d(x, self.W, self.b, self.stride, self.pad)
         return y
 
 
 class Deconv2d(Layer):
-    def __init__(self, out_channels, kernel_size, stride=1,
-                 pad=0, nobias=False, dtype=np.float32, in_channels=None):
+    def __init__(
+        self,
+        out_channels: int,
+        kernel_size: int | tuple[int, int],
+        stride: int | tuple[int, int] = 1,
+        pad: int | tuple[int, int] = 0,
+        nobias: bool = False,
+        dtype: Dtype = np.float32,
+        in_channels: int | None = None
+    ) -> None:
         """Two-dimensional deconvolutional (transposed convolution)layer.
 
         Args:
@@ -237,20 +260,23 @@ class Deconv2d(Layer):
         else:
             self.b = Parameter(np.zeros(out_channels, dtype=dtype), name='b')
 
-    def _init_W(self, xp=np):
+    def _init_W(self, xp: types.ModuleType = np) -> None:
+        if self.in_channels is None:
+            raise ValueError("in_channels is None")
+
         C, OC = self.in_channels, self.out_channels
         KH, KW = pair(self.kernel_size)
         scale = np.sqrt(1 / (C * KH * KW))
         W_data = xp.random.randn(C, OC, KH, KW).astype(self.dtype) * scale
         self.W.data = W_data
 
-    def forward(self, x):
+    def forward(self, x: ArrayType | Variable) -> Variable:
         if self.W.data is None:
             self.in_channels = x.shape[1]
             xp = cuda.get_array_module(x)
             self._init_W(xp)
 
-        y = F.deconv2d(x, self.W, self.b, self.stride, self.pad)
+        y = Fconv.deconv2d(x, self.W, self.b, self.stride, self.pad)
         return y
 
 
@@ -286,25 +312,30 @@ class RNN(Layer):
 
 
 class LSTM(Layer):
-    def __init__(self, hidden_size, in_size=None):
+    def __init__(
+        self,
+        hidden_size: int,
+        in_size: int | None = None
+    ) -> None:
         super().__init__()
 
-        H, I = hidden_size, in_size
-        self.x2f = Linear(H, in_size=I)
-        self.x2i = Linear(H, in_size=I)
-        self.x2o = Linear(H, in_size=I)
-        self.x2u = Linear(H, in_size=I)
-        self.h2f = Linear(H, in_size=H, nobias=True)
-        self.h2i = Linear(H, in_size=H, nobias=True)
-        self.h2o = Linear(H, in_size=H, nobias=True)
-        self.h2u = Linear(H, in_size=H, nobias=True)
-        self.reset_state()
+        self.x2f = Linear(hidden_size, in_size=in_size)
+        self.x2i = Linear(hidden_size, in_size=in_size)
+        self.x2o = Linear(hidden_size, in_size=in_size)
+        self.x2u = Linear(hidden_size, in_size=in_size)
+        self.h2f = Linear(hidden_size, in_size=hidden_size, nobias=True)
+        self.h2i = Linear(hidden_size, in_size=hidden_size, nobias=True)
+        self.h2o = Linear(hidden_size, in_size=hidden_size, nobias=True)
+        self.h2u = Linear(hidden_size, in_size=hidden_size, nobias=True)
 
-    def reset_state(self):
+        self.h: Variable | None = None
+        self.c: Variable | None = None
+
+    def reset_state(self) -> None:
         self.h = None
         self.c = None
 
-    def forward(self, x):
+    def forward(self, x: ArrayType | Variable) -> Variable:
         if self.h is None:
             f = F.sigmoid(self.x2f(x))
             i = F.sigmoid(self.x2i(x))
@@ -323,19 +354,27 @@ class LSTM(Layer):
 
         h_new = o * F.tanh(c_new)
 
-        self.h, self.c = h_new, c_new
+        self.h = h_new
+        self.c = c_new
+
         return h_new
 
 
 # =============================================================================
 # EmbedID / BatchNorm
 # =============================================================================
-class EmbedID(Layer):
-    def __init__(self, in_size, out_size):
-        super().__init__()
-        self.W = Parameter(np.random.randn(in_size, out_size), name='W')
 
-    def __call__(self, x):
+class EmbedID(Layer):
+    def __init__(
+        self,
+        in_size: int,
+        out_size: int
+    ) -> None:
+        super().__init__()
+        self.W = Parameter(np.random.randn(in_size, out_size), name="W")
+
+    def __call__(self, *inputs: int) -> Variable:
+        x = inputs[0]
         y = self.W[x]
         return y
 
@@ -351,7 +390,7 @@ class BatchNorm(Layer):
         self.gamma = Parameter(None, name='gamma')
         self.beta = Parameter(None, name='beta')
 
-    def _init_params(self, x):
+    def _init_params(self, x: ArrayType | Variable) -> None:
         xp = cuda.get_array_module(x)
         D = x.shape[1]
         if self.avg_mean.data is None:
@@ -363,8 +402,13 @@ class BatchNorm(Layer):
         if self.beta.data is None:
             self.beta.data = xp.zeros(D, dtype=x.dtype)
 
-    def __call__(self, x):
+    def __call__(self, *inputs: ArrayType | Variable):
+        x = inputs[0]
         if self.avg_mean.data is None:
             self._init_params(x)
-        return F.batch_nrom(x, self.gamma, self.beta, self.avg_mean.data,
-                            self.avg_var.data)
+        return F.batch_nrom(
+            x, self.gamma,
+            self.beta,
+            self.avg_mean.data,
+            self.avg_var.data
+        )
