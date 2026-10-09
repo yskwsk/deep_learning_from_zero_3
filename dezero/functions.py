@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Literal
+from types import EllipsisType
+from typing import Any, Literal, TypeAlias, cast
 
 import numpy as np
 
@@ -150,8 +151,14 @@ def transpose(
     return Transpose(axes)(x)
 
 
+IndexPartType: TypeAlias = int | slice | EllipsisType | ArrayType
+
+
+IndexType: TypeAlias = IndexPartType | tuple[IndexPartType, ...]
+
+
 class GetItem(Function):
-    def __init__(self, slices: int | Sequence[int] | ArrayType):
+    def __init__(self, slices: IndexType):
         self.slices = slices
 
     def forward(self, x: ArrayType) -> ArrayType:
@@ -166,7 +173,7 @@ class GetItem(Function):
 
 def get_item(
     x: ArrayType | Variable,
-    slices: int | Sequence[int] | ArrayType
+    slices: IndexType
 ) -> Variable:
     return GetItem(slices)(x)
 
@@ -174,7 +181,7 @@ def get_item(
 class GetItemGrad(Function):
     def __init__(
         self,
-        slices: int | Sequence[int] | ArrayType,
+        slices: IndexType,
         in_shape: tuple[int, ...]
     ) -> None:
         self.slices = slices
@@ -185,7 +192,8 @@ class GetItemGrad(Function):
         gx = xp.zeros(self.in_shape, dtype=gy.dtype)
 
         if xp is np:
-            np.add.at(gx, self.slices, gy)
+            indices = cast(Any, self.slices)
+            np.add.at(gx, indices, gy)
         else:
             xp.scatter_add(gx, self.slices, gy)
 
@@ -302,10 +310,12 @@ class MatMul(Function):
         y = x.dot(W)
         return y
 
-    def backward(self, gy: Variable) -> tuple[Variable, ...]:
+    def backward(self, gy: Variable) -> tuple[Variable, Variable]:
         x, W = self.inputs
+
         gx = matmul(gy, W.T)
         gW = matmul(x.T, gy)
+
         return gx, gW
 
 
@@ -425,6 +435,8 @@ class Softmax(Function):
 
     def backward(self, gy: Variable) -> Variable:
         y = self.outputs[0]()
+        assert y is not None
+
         gx = y * gy
         sumdx = gx.sum(axis=self.axis, keepdims=True)
         gx -= y * sumdx
@@ -526,15 +538,19 @@ def softmax_cross_entropy_simple(
     x: ArrayType | Variable,
     t: ArrayType | Variable
 ):
-    x = as_variable(x)
-    t = as_variable(t)
-    N = int(x.shape[0])
-    p = softmax(x)
+    _x = as_variable(x)
+    _t = as_variable(t)
+    assert _x.data is not None
+    assert _t.data is not None
+
+    N = int(_x.shape[0])
+    p = softmax(_x)
     # To avoid log(0)
     p = clip(p, 1e-15, 1.0)
     log_p = log(p)
-    tlog_p = log_p[np.arange(N), t.data]
+    tlog_p = log_p[np.arange(N), _t.data]
     y = -1 * sum(tlog_p) / N
+
     return y
 
 
@@ -617,7 +633,8 @@ def accuracy(y: ArrayType | Variable, t: ArrayType | Variable) -> Variable:
     pred = _y.data.argmax(axis=1).reshape(t.shape)
     result = pred == _t.data
     acc = result.mean()
-    return Variable(as_array(acc))
+
+    return Variable(cast(ArrayType, as_array(acc)))
 
 
 def dropout(
@@ -657,6 +674,7 @@ class BatchNorm(Function):
         beta
     ):
         assert x.ndim == 2 or x.ndim == 4
+        assert self.inv_std is not None
 
         x_ndim = x.ndim
         if x_ndim == 4:
@@ -693,6 +711,8 @@ class BatchNorm(Function):
         return y
 
     def backward(self, gy: Variable) -> tuple[Variable, Variable, Variable]:
+        assert self.inv_std is not None
+
         gy_ndim = gy.ndim
         if gy_ndim == 4:
             N, C, H, W = gy.shape

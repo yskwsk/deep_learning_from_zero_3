@@ -449,4 +449,4 @@ def pair(x: int | tuple[int, int]) -> tuple[int, int]:
         assert len(x) == 2
         return x
     else:
-        raise ValueError
+        raise TypeError(f"{type(x)} is not supported")
