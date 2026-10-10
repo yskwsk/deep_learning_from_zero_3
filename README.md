@@ -18,3 +18,9 @@ pip install -r requirements.txt
 ```bash
 brew install graphviz
 ```
+
+Google Colab上で実行
+```bash
+cd steps
+./python_run -g step52
+```
