@@ -54,8 +54,8 @@ class Tanh(Function):
 
     def backward(self, gy: Variable) -> Variable:
         y = self.outputs[0]()
-        if y is None:
-            raise ValueError("y is None")
+        assert y is not None
+
         gx = gy * (1 - y * y)
         return gx
 
@@ -71,8 +71,8 @@ class Exp(Function):
 
     def backward(self, gy: Variable) -> Variable:
         y = self.outputs[0]()
-        if y is None:
-            raise ValueError("y is None")
+        assert y is not None
+
         gx = gy * y
         return gx
 
@@ -113,8 +113,9 @@ class Reshape(Function):
         return y
 
     def backward(self, gy) -> Variable:
-        # 元の変数と同じ形状に変換する
         assert self.x_shape is not None
+
+        # 元の変数と同じ形状に変換する
         return reshape(gy, self.x_shape)
 
 
@@ -141,6 +142,7 @@ class Transpose(Function):
 
         axes_len = len(self.axes)
         inv_axes = tuple(np.argsort([ax % axes_len for ax in self.axes]))
+
         return transpose(gy, inv_axes)
 
 
@@ -237,8 +239,8 @@ class Sum(Function):
         return y
 
     def backward(self, gy: Variable) -> Variable:
-        if self.x_shape is None:
-            raise ValueError("x_shape is None")
+        assert self.x_shape is not None
+
         gy = utils.reshape_sum_backward(gy, self.x_shape, self.axis, self.keepdims)
         gx = broadcast_to(gy, self.x_shape)
         return gx
@@ -265,8 +267,8 @@ class SumTo(Function):
         return y
 
     def backward(self, gy: Variable) -> Variable:
-        if self.x_shape is None:
-            raise ValueError("x_shape is None")
+        assert self.x_shape is not None
+
         gx = broadcast_to(gy, self.x_shape)
         return gx
 
@@ -293,8 +295,8 @@ class BroadcastTo(Function):
         return y
 
     def backward(self, gy: Variable) -> Variable:
-        if self.x_shape is None:
-            raise ValueError("x_shape is None")
+        assert self.x_shape is not None
+
         gx = sum_to(gy, self.x_shape)
         return gx
 
@@ -385,8 +387,8 @@ class Sigmoid(Function):
 
     def backward(self, gy: Variable) -> Variable:
         y = self.outputs[0]()
-        if y is None:
-            raise ValueError("y is None")
+        assert y is not None
+
         gx = gy * y * (1 - y)
         return gx
 
@@ -403,6 +405,7 @@ class ReLU(Function):
     def backward(self, gy: Variable) -> Variable:
         x, = self.inputs
         assert x.data is not None
+
         mask = x.data > 0
         gx = gy * mask
         return gx
@@ -462,6 +465,7 @@ class LogSoftmax(Function):
     def backward(self, gy: Variable) -> Variable:
         y = self.outputs[0]()
         assert y is not None
+
         gx = gy - exp(y) * gy.sum(axis=self.axis, keepdims=True)
         return gx
 
@@ -485,6 +489,7 @@ class LeakyReLU(Function):
     def backward(self, gy: Variable) -> Variable:
         x, = self.inputs
         assert x.data is not None
+
         mask = (x.data > 0).astype(gy.dtype)
         mask[mask <= 0] = self.slope
         gx = gy * mask
@@ -656,8 +661,8 @@ def dropout(
 class BatchNorm(Function):
     def __init__(
         self,
-        mean,
-        var,
+        mean: ArrayType,
+        var: ArrayType,
         decay: float,
         eps: float
     ) -> None:
@@ -665,14 +670,14 @@ class BatchNorm(Function):
         self.avg_var = var
         self.decay = decay
         self.eps = eps
-        self.inv_std = None
+        self.inv_std: ArrayType | None = None
 
     def forward(
         self,
         x: ArrayType,
         gamma: ArrayType,
-        beta
-    ):
+        beta: ArrayType
+    ) -> ArrayType:
         assert x.ndim == 2 or x.ndim == 4
         assert self.inv_std is not None
 
@@ -691,7 +696,7 @@ class BatchNorm(Function):
             xc = (x - mean) * inv_std
 
             m = x.size // gamma.size
-            s = m - 1. if m - 1. > 1. else 1.
+            s = m - 1.0 if m - 1.0 > 1.0 else 1.0
             adjust = m / s  # unbiased estimation
             self.avg_mean *= self.decay
             self.avg_mean += (1 - self.decay) * mean
@@ -740,11 +745,22 @@ class BatchNorm(Function):
         return gx, ggamma, gbeta
 
 
-def batch_nrom(x, gamma, beta, mean, var, decay=0.9, eps=2e-5):
+def batch_nrom(
+    x: ArrayType | Variable,
+    gamma: ArrayType,
+    beta: ArrayType,
+    mean: ArrayType,
+    var: ArrayType,
+    decay: float = 0.9,
+    eps:  float = 2e-5,
+) -> Variable:
     return BatchNorm(mean, var, decay, eps)(x, gamma, beta)
 
 
-def embed_id(x, W):
+def embed_id(
+    x: int,
+    W: Variable
+) -> Variable:
     return W[x]
 
 

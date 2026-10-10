@@ -23,7 +23,10 @@ from dezero.utils import pair
 # Layer (base class)
 # =============================================================================
 
-def _forward_unimplemented(self, *inputs: Any) -> None:
+def _forward_unimplemented(
+    self,
+    *inputs: Any
+) -> None:
     raise NotImplementedError(
         f"Module [{type(self).__name__}] is missing the required 'forward' function"
     )
@@ -95,7 +98,6 @@ class Layer(ABC):
 
         params_dict: dict[str, Parameter] = {}
         self._flatten_params(params_dict)
-        # array_dict = {key: param.data for key, param in params_dict.items() if param is not None}
         array_dict: dict[str, Any] = {}
         for key, param in params_dict.items():
             if param.data is not None:

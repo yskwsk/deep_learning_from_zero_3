@@ -14,7 +14,11 @@ from dezero.config import Config
 class Variable:
     __array_priority__ = 200
 
-    def __init__(self, data: np.ndarray, name: str | None = None) -> None:
+    def __init__(
+        self,
+        data: np.ndarray,
+        name: str | None = None
+    ) -> None:
         if not isinstance(data, np.ndarray):
             raise TypeError('{} is not supported'.format(type(data)))
 
