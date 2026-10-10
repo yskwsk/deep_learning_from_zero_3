@@ -5,6 +5,7 @@ import numpy as np
 from dezero import Variable
 import dezero.functions as F
 
+
 if __name__ == "__main__":
     np.random.seed(0)
 
@@ -41,7 +42,12 @@ if __name__ == "__main__":
         b2.cleargrad()
         loss.backward()
 
-        if (W1.grad is None) or (b1.grad is None) or (W2.grad is None) or (b2.grad is None):
+        if (
+            ((W1.data is None) or (W1.grad is None) or (W1.grad.data is None)) or
+            ((b1.data is None) or (b1.grad is None) or (b1.grad.data is None)) or
+            ((W2.data is None) or (W2.grad is None) or (W2.grad.data is None)) or
+            ((b2.data is None) or (b2.grad is None) or (b2.grad.data is None))
+        ):
             raise ValueError("parameter.grad is None")
 
         W1.data -= lr * W1.grad.data
@@ -54,6 +60,7 @@ if __name__ == "__main__":
     # Plot
     t = np.arange(0, 1, 0.01)[:, np.newaxis]
     y_pred = predict(t)
+    assert y_pred.data is not None
 
     # plt.scatter(x.data, y.data, s=10)
     plt.scatter(x, y, s=10)
