@@ -405,11 +405,16 @@ class BatchNorm(Layer):
             self.beta.data = xp.zeros(D, dtype=x.dtype)
 
     def __call__(self, *inputs: ArrayType | Variable):
+        assert self.avg_mean.data is not None
+        assert self.avg_var.data is not None
+
         x = inputs[0]
         if self.avg_mean.data is None:
             self._init_params(x)
+
         return F.batch_nrom(
-            x, self.gamma,
+            x,
+            self.gamma,
             self.beta,
             self.avg_mean.data,
             self.avg_var.data
