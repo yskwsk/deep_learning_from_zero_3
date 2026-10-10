@@ -33,7 +33,7 @@ def get_array_module(x: ArrayType | Variable) -> types.ModuleType:
         return np
 
     if isinstance(x, Variable):
-        if x.data is not None:
+        if x.data is None:
             raise ValueError("x.data is None")
         _x = x.data
     else:
