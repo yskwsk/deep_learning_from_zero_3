@@ -14,6 +14,9 @@ def create_dataset(seed: int = 1234, plot: bool = False) -> tuple[Variable, ...]
     y = Variable(_y)
 
     if plot:
+        assert x.data is not None
+        assert y.data is not None
+
         plt.scatter(x.data, y.data, s=10)
         plt.xlabel("x")
         plt.ylabel("y")
@@ -53,8 +56,10 @@ if __name__ == "__main__":
         loss.backward()
 
         # Update .data attribute (No need grads when updating params)
-        if (W.grad is None) or (b.grad is None):
-            raise ValueError("W.grad or b.grad is None")
+        if (W.data is None) or (W.grad is None) or (W.grad.data is None):
+            raise ValueError("W.data or W.grad is None")
+        if (b.data is None) or (b.grad is None) or (b.grad.data is None):
+            raise ValueError("b.data or b.grad is None")
 
         W.data -= lr * W.grad.data
         b.data -= lr * b.grad.data
@@ -62,6 +67,9 @@ if __name__ == "__main__":
 
     # Plot
     y_pred = predict(x, W, b)
+    assert x.data is not None
+    assert y.data is not None
+    assert y_pred.data is not None
     plt.scatter(x.data, y.data, s=10)
     plt.xlabel('x')
     plt.ylabel('y')

@@ -37,9 +37,13 @@ if __name__ == "__main__":
 
         if x.grad is None:
             raise ValueError("x.grad is None")
+
         gx = x.grad
         x.cleargrad()
         gx.backward()
         gx2 = x.grad
+
+        if (x.data is None) or (gx.data is None):
+            raise ValueError("x.data or gx.data is None")
 
         x.data -= gx.data / gx2.data
