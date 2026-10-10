@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 gpu_enable: bool = True
 try:
     import cupy as cp  # type: ignore[import-not-found]
+    cupy = cp
 except ImportError:
     gpu_enable = False
 
