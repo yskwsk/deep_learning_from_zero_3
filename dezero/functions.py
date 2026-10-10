@@ -330,6 +330,7 @@ def matmul(
 
 class Linear(Function):
     def forward(self, x: ArrayType, W: ArrayType, b: ArrayType | None = None) -> ArrayType:
+        print(type(x), type(W), type(b))
         y = x.dot(W)
 
         if b is not None:
