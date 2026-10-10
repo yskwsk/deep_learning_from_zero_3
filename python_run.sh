@@ -14,8 +14,9 @@ if [ "$1" = "-g" ]; then
     shift
 else
     source "$PROJECT_DIR/venv/bin/activate"
-    export PYTHONPATH="$PROJECT_DIR${PYTHONPATH:+:$PYTHONPATH}"
 fi
+
+export PYTHONPATH="$PROJECT_DIR${PYTHONPATH:+:$PYTHONPATH}"
 
 if [ $# -lt 1 ]; then
     echo "Usage: ./python_run.sh [-g] <script.py> [args...]"
