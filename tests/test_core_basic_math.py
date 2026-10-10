@@ -72,3 +72,10 @@ def test_add2(
 ) -> None:
     z = x + y
     assert z == expected
+
+
+@pytest.mark.parametrize("x y, expected", [
+    
+])
+def test_sub1() -> None:
+    
