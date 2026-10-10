@@ -144,18 +144,20 @@ class Linear(Layer):
         else:
             self.b = Parameter(np.zeros(out_size, dtype=dtype), name='b')
 
-    def _init_W(self) -> None:
+    def _init_W(self, xp: types.ModuleType = np) -> None:
         if self.in_size is None:
             raise ValueError("in_size is None")
+
         in_size = self.in_size
         out_size = self.out_size
-        W_data = np.random.randn(in_size, out_size).astype(self.dtype) * np.sqrt(1.0 / in_size)
+        W_data = xp.random.randn(in_size, out_size).astype(self.dtype) * np.sqrt(1.0 / in_size)
         self.W.data = W_data
 
     def forward(self, x: ArrayType | Variable) -> Variable:
         if self.W.data is None:
             self.in_size = x.shape[1]
-            self._init_W()
+            xp = cuda.get_array_module(x)
+            self._init_W(xp=xp)
 
         y = F.linear(x, self.W, self.b)
         return y

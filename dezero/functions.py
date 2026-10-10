@@ -335,14 +335,17 @@ class Linear(Function):
 
         if b is not None:
             y += b
+
         return y
 
     def backward(self, gy: Variable) -> tuple[Variable, Variable, Variable | None]:
         x, W, b = self.inputs
+
         if b.data is None:
             gb = None
         else:
             gb = sum_to(gy, b.shape)
+
         gx = matmul(gy, W.T)
         gW = matmul(x.T, gy)
         return gx, gW, gb
