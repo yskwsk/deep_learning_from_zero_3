@@ -4,6 +4,7 @@ import tarfile
 import pickle
 
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, Callable
 
@@ -38,7 +39,7 @@ class Dataset(ABC):
 
         self.prepare()
 
-    def __getitem__(self, index: int) -> tuple[Any, ...]:
+    def __getitem__(self, index: int) -> tuple[Any, Any]:
         # assert np.isscalar(index)
         assert self.data is not None
 
@@ -46,6 +47,10 @@ class Dataset(ABC):
             return self.transform(self.data[index]), None
         else:
             return self.transform(self.data[index]), self.target_transform(self.label[index])
+
+    def __iter__(self) -> Iterator[tuple[Any, Any]]:
+        for index in range(len(self)):
+            yield self[index]
 
     def __len__(self) -> int:
         if self.data is None:
@@ -392,7 +397,7 @@ class ImageNet(Dataset):
 # =============================================================================
 class SinCurve(Dataset):
 
-    def prepare(self):
+    def prepare(self) -> None:
         num_data = 1000
         dtype = np.float64
 
