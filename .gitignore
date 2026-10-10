@@ -5,3 +5,6 @@ venv
 graphviz/*.png
 misc
 steps/*.png
+steps/*.npy
+steps/*.npz
+steps/*.pdf
