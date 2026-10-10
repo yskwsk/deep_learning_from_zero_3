@@ -17,6 +17,7 @@ def main() -> None:
 
     # GPU mode
     if dezero.cuda.gpu_enable:
+        print("--- GPU mode ---")
         train_loader.to_gpu()
         model.to_gpu()
 
