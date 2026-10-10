@@ -9,7 +9,7 @@ import numpy as np
 import dezero
 from dezero import cuda, utils
 from dezero.array_type import ArrayType
-from dezero.core import Function, Variable, as_variable, as_array
+from dezero.core import Function, Parameter, Variable, as_variable, as_array
 
 
 # =============================================================================
@@ -649,7 +649,8 @@ def dropout(
     _x = as_variable(x)
 
     if dezero.Config.train:
-        xp = cuda.get_array_module(x)
+        # Inverted Dropout
+        xp = cuda.get_array_module(_x)
         mask = xp.random.rand(*x.shape) > dropout_ratio
         scale = xp.array(1.0 - dropout_ratio).astype(x.dtype)
         y = _x * mask / scale
@@ -661,8 +662,8 @@ def dropout(
 class BatchNorm(Function):
     def __init__(
         self,
-        mean: ArrayType,
-        var: ArrayType,
+        mean: ArrayType | Variable | Parameter,
+        var: ArrayType | Variable | Parameter,
         decay: float,
         eps: float
     ) -> None:
@@ -747,10 +748,10 @@ class BatchNorm(Function):
 
 def batch_nrom(
     x: ArrayType | Variable,
-    gamma: ArrayType,
-    beta: ArrayType,
-    mean: ArrayType,
-    var: ArrayType,
+    gamma: ArrayType | Variable | Parameter,
+    beta: ArrayType | Variable | Parameter,
+    mean: ArrayType | Variable | Parameter,
+    var: ArrayType | Variable | Parameter,
     decay: float = 0.9,
     eps:  float = 2e-5,
 ) -> Variable:
